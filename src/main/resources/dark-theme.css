@@ -1,0 +1,391 @@
+/* ===================================================================================
+ * DEEP NEON CINEMATIC UI — FINAL UNIFIED THEME
+ * ===================================================================================
+ * Principles:
+ * 1. Deepest Blacks (#0b0c10) for main backgrounds.
+ * 2. Surface Blacks (#12141a) for sidebars/panels.
+ * 3. Gradients for interactions and identity.
+ * 4. White text for readability.
+ * ===================================================================================
+ */
+
+
+/* ===================================================================================
+ * 1. VARIABLES & GLOBAL BASE
+ * ===================================================================================
+ */
+
+.root {
+    /* -------- Color Palette (Darkest to Lighter) -------- */
+    -app-bg-deepest: #0b0c10;  /* Main Background */
+    -app-bg-surface: #0e1015;  /* Secondary Background */
+    -app-bg-panel:   #12141a;  /* Sidebar / Cards */
+    -app-bg-card:    #151820;  /* Elevated Elements */
+    -app-bg-input:   #000000;  /* Inputs (Pitch Black) */
+
+    /* -------- Accents -------- */
+    -app-cyan:         #45a29e;
+    -app-cyan-bright:  #66fcf1;
+    -app-purple:       #c45dec;
+    -app-red-warning:  #ff4d4d;
+
+    /* -------- Gradients -------- */
+    -app-grad-primary: linear-gradient(to right, #45a29e 0%, #c45dec 100%);
+    -app-grad-hover:   linear-gradient(to right, #66fcf1 0%, #d870ff 100%);
+    -app-grad-text:    linear-gradient(to right, #00d4ff 0%, #7a2aff 100%);
+
+    /* -------- Glow Effects -------- */
+    -glow-soft:   dropshadow(three-pass-box, rgba(102,252,241,0.25), 8, 0, 0, 0);
+    -glow-strong: dropshadow(three-pass-box, rgba(102,252,241,0.45), 14, 0, 0, 0);
+
+    /* -------- Typography & Base -------- */
+    -text-primary:   #eef2f7;
+    -text-secondary: #a1a8b3;
+    -text-muted:     #6b7280;
+
+    -fx-base: -app-bg-deepest;
+    -fx-background: -app-bg-deepest;
+    -fx-control-inner-background: -app-bg-deepest;
+    -fx-font-family: "Inter", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+    -fx-text-fill: -text-secondary;
+}
+
+
+/* ===================================================================================
+ * 2. LAYOUT CONTAINERS
+ * ===================================================================================
+ */
+
+/* Main View Backgrounds - set to Deepest to fix "Too Bright" issue */
+.image-browser-view,
+.speed-sorter-view,
+.scrub-view,
+.stack-pane {
+    -fx-background-color: -app-bg-deepest;
+}
+
+/* Sidebar - Slightly elevated for separation */
+.sidebar-menu {
+    -fx-background-color: -app-bg-panel;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 0, 0);
+}
+
+/* Metadata Panel - Matches main view to look seamless */
+.meta-pane {
+    -fx-background: -app-bg-deepest;
+    -fx-background-color: -app-bg-deepest;
+}
+
+/* Title Bar */
+.custom-title-bar {
+    -fx-background-color: -app-bg-surface;
+    -fx-padding: 8px 16px;
+    -fx-border-color: rgba(255,255,255,0.05);
+    -fx-border-width: 0 0 1 0;
+}
+
+
+/* ===================================================================================
+ * 3. TEXT & ICONS
+ * ===================================================================================
+ */
+
+.text-primary   { -fx-text-fill: -text-primary; }
+.text-secondary { -fx-text-fill: -text-secondary; }
+
+/* Fix for "Weird Glyph" - Force FontAwesome */
+.ikonli-font-icon {
+    -fx-font-family: "FontAwesome" !important;
+    -fx-fill: -app-grad-primary;
+    -fx-icon-color: -app-grad-primary;
+}
+
+.title-label {
+    -fx-text-fill: -app-grad-text;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0,212,255,0.35), 6, 0, 0, 0);
+}
+
+
+/* ===================================================================================
+ * 4. INPUTS (FIX FOR BLACK BOXES)
+ * ===================================================================================
+ */
+
+/* Global rule for ALL text inputs to ensure white text */
+.text-input,
+.text-field,
+.text-area {
+    -fx-text-fill: white !important;
+    -fx-highlight-fill: -app-cyan;
+    -fx-highlight-text-fill: white;
+    -fx-prompt-text-fill: -text-muted;
+}
+
+/* Standard Input Styling (Search, Tags, etc.) */
+.text-field,
+.text-area {
+    -fx-background-color: -app-grad-primary, -app-bg-input;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 6px;
+}
+
+.text-field:focused,
+.text-area:focused {
+    -fx-background-color: -app-grad-hover, -app-bg-input;
+    -fx-effect: -glow-soft;
+}
+
+/* FIX: Ensure TextArea internals are transparent so background shows */
+.text-area .content,
+.text-area .viewport {
+    -fx-background-color: transparent;
+}
+
+
+/* ===================================================================================
+ * 5. METADATA SPECIFIC (READ ONLY FIELDS)
+ * ===================================================================================
+ */
+
+.meta-toolbar {
+    -fx-padding: 0 0 10 0;
+    -fx-border-color: transparent transparent #333 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.meta-label {
+    -fx-text-fill: white;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 0 2 0;
+}
+
+.meta-value-box {
+    -fx-background-color: rgba(255,255,255,0.03);
+    -fx-background-radius: 6;
+    -fx-padding: 8;
+    -fx-spacing: 2;
+}
+
+/* The copyable text areas in the metadata panel */
+.meta-value-text-area {
+    -fx-text-fill: #ddd !important; /* Slightly off-white */
+    -fx-font-size: 13px;
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+/* Force transparency on inner parts of meta fields */
+.meta-value-text-area .content,
+.meta-value-text-area .viewport,
+.meta-value-text-area .scroll-pane {
+    -fx-background-color: transparent;
+}
+
+
+/* ===================================================================================
+ * 6. BUTTONS & CONTROLS
+ * ===================================================================================
+ */
+
+.button, .icon-button {
+    -fx-background-color: #1c2230;
+    -fx-border-color: rgba(255,255,255,0.06);
+    -fx-background-radius: 6px;
+    -fx-text-fill: -text-primary;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.button:hover, .icon-button:hover {
+    -fx-background-color: -app-grad-hover;
+    -fx-border-color: transparent;
+    -fx-effect: -glow-strong;
+}
+
+/* Hover: Icon turns black for contrast against bright gradient */
+.button:hover .ikonli-font-icon,
+.icon-button:hover .ikonli-font-icon {
+    -fx-fill: #0b0c10;
+    -fx-icon-color: #0b0c10;
+}
+
+/* Small Copy Button (Metadata) */
+.icon-button-small {
+    -fx-background-color: transparent;
+    -fx-padding: 2;
+    -fx-cursor: hand;
+    -fx-font-size: 10px;
+    -fx-border-color: transparent;
+}
+.icon-button-small:hover {
+    -fx-background-color: rgba(255,255,255,0.1);
+}
+.icon-button-small .ikonli-font-icon {
+    -fx-fill: #888;
+}
+.icon-button-small:hover .ikonli-font-icon {
+    -fx-fill: white;
+}
+
+/* Destructive Buttons */
+.window-close .ikonli-font-icon,
+.delete-button .ikonli-font-icon {
+    -fx-fill: -app-red-warning !important;
+}
+.window-close:hover .ikonli-font-icon,
+.delete-button:hover .ikonli-font-icon {
+    -fx-fill: white !important;
+}
+
+
+/* ===================================================================================
+ * 7. SIDEBAR NAVIGATION
+ * ===================================================================================
+ */
+
+.sidebar-header-label {
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-padding: 10 0 10 5;
+}
+
+.sidebar-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 14px;
+    -fx-padding: 10 15;
+    -fx-cursor: hand;
+    -fx-alignment: center-left;
+}
+
+.sidebar-btn:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-text-fill: -text-primary;
+}
+
+.sidebar-btn:hover .ikonli-font-icon {
+    -fx-fill: -app-grad-hover;
+    -fx-effect: -glow-soft;
+}
+
+/* Active State Indicator (Gradient Border Left) */
+.sidebar-btn-active {
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-text-fill: white;
+    -fx-border-color: linear-gradient(to bottom, #45a29e, #c45dec);
+    -fx-border-width: 0 0 0 3;
+}
+.sidebar-btn-active .ikonli-font-icon {
+    -fx-fill: -app-cyan-bright;
+}
+
+
+/* ===================================================================================
+ * 8. GRID & FILMSTRIP (GALLERY)
+ * ===================================================================================
+ */
+
+/* Grid Cells */
+.grid-cell {
+    -fx-background-color: -app-bg-panel;
+    -fx-border-color: rgba(255,255,255,0.1);
+    -fx-border-radius: 4;
+    -fx-cursor: hand;
+}
+.grid-cell:hover {
+    -fx-border-color: -app-cyan;
+    -fx-effect: dropshadow(three-pass-box, -app-cyan, 5, 0.3, 0, 0);
+}
+
+/* Filmstrip */
+.filmstrip-container {
+    -fx-alignment: center;
+}
+
+.film-frame {
+    -fx-border-color: transparent;
+    -fx-border-width: 2;
+    -fx-padding: 2;
+    -fx-opacity: 0.7;
+    -fx-transition: opacity 0.2s;
+    -fx-cursor: hand;
+}
+.film-frame:hover { -fx-opacity: 1.0; }
+
+.film-frame-selected {
+    -fx-opacity: 1.0;
+    -fx-background-color: linear-gradient(to right, #00c6ff, #0072ff), -app-bg-deepest;
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 4, 2;
+    -fx-padding: 4;
+}
+
+
+/* ===================================================================================
+ * 9. MISC UTILITIES
+ * ===================================================================================
+ */
+
+/* View Switcher (Floating Toolbar) */
+.view-switcher-btn {
+    -fx-background-color: transparent;
+    -fx-cursor: hand;
+    -fx-padding: 5 10 5 10;
+}
+.view-switcher-btn .ikonli-font-icon {
+    -fx-icon-color: #888;
+    -fx-fill: #888;
+}
+.view-switcher-btn:selected {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+    -fx-background-radius: 8;
+}
+.view-switcher-btn:selected .ikonli-font-icon {
+    -fx-icon-color: #00c6ff;
+    -fx-fill: linear-gradient(to bottom right, #00c6ff, #0072ff);
+}
+
+/* Tag Chips */
+.tag-chip {
+    -fx-background-radius: 12;
+    -fx-padding: 4 10 4 10;
+    -fx-text-fill: white;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.3), 2, 0, 0, 1);
+}
+.tag-chip:hover {
+    -fx-opacity: 0.8;
+}
+
+/* Scrollbars */
+.scroll-bar { -fx-background-color: transparent; }
+.scroll-bar .thumb {
+    -fx-background-color: #3e4c59;
+    -fx-background-radius: 20px;
+}
+.scroll-bar .thumb:hover { -fx-background-color: -app-cyan; }
+
+/* Lists/Trees transparency */
+.tree-view, .list-view, .scroll-pane, .viewport {
+    -fx-background-color: transparent;
+}
+.list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -text-secondary;
+}
+.list-cell:filled:hover {
+    -fx-background-color: rgba(102,252,241,0.1);
+    -fx-text-fill: white;
+}
+.list-cell:filled:selected {
+    -fx-background-color: -app-grad-primary;
+    -fx-text-fill: white;
+}

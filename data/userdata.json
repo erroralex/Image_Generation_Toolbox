@@ -1,0 +1,302 @@
+{
+  "stars" : [ "D:\\AI\\Art by me\\Keep\\00047-281793503.jpeg", "C:\\Downloads\\Test images\\532088194-dc40ce32-bcfb-4cfc-8204-a3bb89a3330b.webp", "D:\\AI\\Art by me\\00002.jpeg" ],
+  "settings" : {
+    "view_mode_grid" : "false",
+    "last_folder" : "C:\\Downloads\\Test images"
+  },
+  "customLists" : { },
+  "fileTags" : {
+    "D:\\AI\\Art ideas\\the_lord_of_the_nazgul_on_his_flying_serpent_is_loaded_down_with_bags_of_presents_detailed_realisti_djym20fxwwwnfycovyjm_0.jpeg" : [ "Snow" ],
+    "D:\\AI\\Art ideas\\00040-940907004.png" : [ "Cute", "Snow" ],
+    "D:\\AI\\Art ideas\\2024-02-28-133333_1944975709_forgottenmixAnimation_v10Pruned_dpmpp_2m_karras_XTRA_UPSCALED.png" : [ "Cute" ],
+    "C:\\Downloads\\Test images\\532088194-dc40ce32-bcfb-4cfc-8204-a3bb89a3330b.webp" : [ "Webp" ],
+    "D:\\AI\\Art by me\\000054.jpeg" : [ "Valkyrie" ],
+    "D:\\AI\\Art by me\\Floor the Valkyrie.png" : [ "Valkyrie" ],
+    "D:\\AI\\Art by me\\00023-2428140964.png" : [ "Wallpaper" ],
+    "D:\\AI\\Art by me\\00002.jpeg" : [ "Valkyrie" ]
+  },
+  "metadataCache" : {
+    "D:\\AI\\Art by me\\000054.jpeg" : {
+      "Raw" : "Postprocess upscale by: 2, Postprocess upscaler: 4x-UltraShar�",
+      "Height" : "2944",
+      "Prompt" : "Postprocess upscale by: 2, Postprocess upscaler: 4x-UltraShar�",
+      "Software" : "Unknown",
+      "Width" : "6912"
+    },
+    "D:\\AI\\Art by me\\Laget\\1000031758.jpg" : {
+      "Height" : "2252",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "4000"
+    },
+    "D:\\AI\\Art by me\\Laget\\Untitled-1.jpg" : {
+      "Height" : "614",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "524"
+    },
+    "D:\\AI\\Art by me\\Laget\\1000031759.jpg" : {
+      "Height" : "2252",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "4000"
+    },
+    "D:\\AI\\Art by me\\Laget\\1000031757.jpg" : {
+      "Height" : "2252",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "4000"
+    },
+    "D:\\AI\\Art by me\\Laget\\sd2.jpg" : {
+      "Height" : "640",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "2787"
+    },
+    "D:\\AI\\Art by me\\Laget\\sdsdds-4106335095.jpg" : {
+      "Steps" : "30",
+      "CFG" : "7",
+      "Raw" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,  \n\n \nNegative prompt: BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame, \nSteps: 30, Sampler: DPM++ 2M Karras, CFG scale: 7, Seed: 4106335095, Size: 768x512, Model hash: 15012c538f, Model: realisticVisionV51_v51VAE, VAE hash: 551eac7037, VAE: vae-ft-mse-840000-ema-pruned.safetensors, Denoising strength: 0.4, Clip skip: 2, Style Selector Enabled: True, Style Selector Randomize: False, Style Selector Style: base, Hires upscale: 2, Hires steps: 20, Hires upscaler: 8x_NMKD-Superscale_150000_G, Version: v1.6.�",
+      "Hires. fix" : "Enabled (2x)",
+      "Negative" : "BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame,",
+      "Seed" : "4106335095",
+      "Sampler" : "DPM++ 2M Karras",
+      "Model" : "realisticVisionV51_v51VAE",
+      "Height" : "512",
+      "Prompt" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,",
+      "Denoise" : "0.4",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "15012c538f",
+      "Width" : "768"
+    },
+    "D:\\AI\\Art by me\\Laget\\sad-4106335095.jpg" : {
+      "Steps" : "30",
+      "CFG" : "7",
+      "Raw" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,  \n\n \nNegative prompt: BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame, \nSteps: 30, Sampler: DPM++ 2M Karras, CFG scale: 7, Seed: 4106335095, Size: 768x512, Model hash: 15012c538f, Model: realisticVisionV51_v51VAE, VAE hash: 551eac7037, VAE: vae-ft-mse-840000-ema-pruned.safetensors, Denoising strength: 0.4, Clip skip: 2, Style Selector Enabled: True, Style Selector Randomize: False, Style Selector Style: base, Hires upscale: 2, Hires steps: 20, Hires upscaler: 8x_NMKD-Superscale_150000_G, Version: v1.6.�",
+      "Hires. fix" : "Enabled (2x)",
+      "Negative" : "BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame,",
+      "Seed" : "4106335095",
+      "Sampler" : "DPM++ 2M Karras",
+      "Model" : "realisticVisionV51_v51VAE",
+      "Height" : "512",
+      "Prompt" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,",
+      "Denoise" : "0.4",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "15012c538f",
+      "Width" : "768"
+    },
+    "D:\\AI\\Art by me\\Laget\\00054-4106235095.jpg" : {
+      "Steps" : "30",
+      "CFG" : "7",
+      "Raw" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,  \n\n \nNegative prompt: BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame, \nSteps: 30, Sampler: DPM++ 2M Karras, CFG scale: 7, Seed: 4106335095, Size: 768x512, Model hash: 15012c538f, Model: realisticVisionV51_v51VAE, VAE hash: 551eac7037, VAE: vae-ft-mse-840000-ema-pruned.safetensors, Denoising strength: 0.4, Clip skip: 2, Style Selector Enabled: True, Style Selector Randomize: False, Style Selector Style: base, Hires upscale: 2, Hires steps: 20, Hires upscaler: 8x_NMKD-Superscale_150000_G, Version: v1.6.�",
+      "Hires. fix" : "Enabled (2x)",
+      "Negative" : "BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame,",
+      "Seed" : "4106335095",
+      "Sampler" : "DPM++ 2M Karras",
+      "Model" : "realisticVisionV51_v51VAE",
+      "Height" : "512",
+      "Prompt" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,",
+      "Denoise" : "0.4",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "15012c538f",
+      "Width" : "768"
+    },
+    "D:\\AI\\Art by me\\Laget\\Untitled-2.jpg" : {
+      "Height" : "640",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "2787"
+    },
+    "D:\\AI\\Art by me\\Laget\\00054-4106335095.jpg" : {
+      "Steps" : "30",
+      "CFG" : "7",
+      "Raw" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,  \n\n \nNegative prompt: BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame, \nSteps: 30, Sampler: DPM++ 2M Karras, CFG scale: 7, Seed: 4106335095, Size: 768x512, Model hash: 15012c538f, Model: realisticVisionV51_v51VAE, VAE hash: 551eac7037, VAE: vae-ft-mse-840000-ema-pruned.safetensors, Denoising strength: 0.4, Clip skip: 2, Style Selector Enabled: True, Style Selector Randomize: False, Style Selector Style: base, Hires upscale: 2, Hires steps: 20, Hires upscaler: 8x_NMKD-Superscale_150000_G, Version: v1.6.�",
+      "Hires. fix" : "Enabled (2x)",
+      "Negative" : "BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame,",
+      "Seed" : "4106335095",
+      "Sampler" : "DPM++ 2M Karras",
+      "Model" : "realisticVisionV51_v51VAE",
+      "Height" : "512",
+      "Prompt" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,",
+      "Denoise" : "0.4",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "15012c538f",
+      "Width" : "768"
+    },
+    "D:\\AI\\Art by me\\Laget\\00054-4106335095.jpeg" : {
+      "Steps" : "30",
+      "CFG" : "7",
+      "Raw" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,  \n\n \nNegative prompt: BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame, \nSteps: 30, Sampler: DPM++ 2M Karras, CFG scale: 7, Seed: 4106335095, Size: 768x512, Model hash: 15012c538f, Model: realisticVisionV51_v51VAE, VAE hash: 551eac7037, VAE: vae-ft-mse-840000-ema-pruned.safetensors, Denoising strength: 0.4, Clip skip: 2, Style Selector Enabled: True, Style Selector Randomize: False, Style Selector Style: base, Hires upscale: 2, Hires steps: 20, Hires upscaler: 8x_NMKD-Superscale_150000_G, Version: v1.6.�",
+      "Hires. fix" : "Enabled (2x)",
+      "Negative" : "BadDream, UnrealisticDream, badhandv4, bad-hands-5, simplified, abstract, unrealistic, impressionistic, low resolution, lamp, watermark, (signature:1.5), 3d, render, text, logo, written, words, bad anatomy, 6 fingers, too many fingers,  bad-picture-chill-75v, gore, blood, decay, zombie, out of frame,",
+      "Seed" : "4106335095",
+      "Sampler" : "DPM++ 2M Karras",
+      "Model" : "realisticVisionV51_v51VAE",
+      "Height" : "512",
+      "Prompt" : "realistic photo of a construction site\n\n(masterpiece), (realistic), sharp focus, dramatic, award winning, low key, octane render, unreal engine, volumetrics dtx, volumetric lighting,",
+      "Denoise" : "0.4",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "15012c538f",
+      "Width" : "768"
+    },
+    "D:\\AI\\Art by me\\Laget\\00054-3895519584-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\00049-1641895557-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\Ferenc - IMG_7263.jpg" : {
+      "Height" : "6000",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "4000"
+    },
+    "D:\\AI\\Art by me\\Laget\\67586018_10163311892265354_276576570804535296_n.jpg" : {
+      "Height" : "660",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "660"
+    },
+    "D:\\AI\\Art by me\\Laget\\00045-489236805-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\00043-2678244295-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\00037-2640652744-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\00036-2288465838-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\00023-2969785041-removebg-preview.png" : {
+      "Height" : "612",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "408"
+    },
+    "D:\\AI\\Art by me\\Laget\\10644165_10154582339290354_1046673595043404912_o.jpg" : {
+      "Height" : "2048",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "1152"
+    },
+    "D:\\AI\\Art by me\\Laget\\337895538_1270805133840990_1907632812479416286_n.jpg" : {
+      "Height" : "1800",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "1440"
+    },
+    "D:\\AI\\Art by me\\Laget\\83864264_10221648060745143_5321757953623108676_n.jpg" : {
+      "Height" : "768",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "768"
+    },
+    "D:\\AI\\Art by me\\Laget\\DSC_1224.jpg" : {
+      "Height" : "4016",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "6016"
+    },
+    "D:\\AI\\Art by me\\Laget\\Ferenc - IMG_7250.jpg" : {
+      "Height" : "4000",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "6000"
+    },
+    "D:\\AI\\Art by me\\Laget\\351508962_104830329310012_8543000552975630049_n.jpg" : {
+      "Height" : "1440",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "1440"
+    },
+    "D:\\AI\\Art by me\\Laget\\ssda-1814576527.jpg" : {
+      "Height" : "2268",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "4032"
+    },
+    "D:\\AI\\Art by me\\Keep\\00001_upscayl_4x_realesrgan-x4plus.jpg" : {
+      "Height" : "11776",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "27648"
+    },
+    "D:\\AI\\Art by me\\Keep\\00047-281793503.jpeg" : {
+      "Steps" : "30",
+      "CFG" : "7",
+      "Raw" : "blurred background, sharp focus, (2.5D animation), (disney CGI), (masterpiece), (best quality), (absurdres), (hdr),\nNegative prompt: BadDream, UnrealisticDream, jpeg, artifacts, bad quality, pixels, painting, watermark, signature, (hand:1.5),\nSteps: 30, Sampler: DPM++ 2M SDE Karras, CFG scale: 7, Seed: 281793503, Size: 3456x1472, Model hash: 879db523c3, Model: dreamshaper_8, VAE hash: 551eac7037, VAE: vae-ft-mse-840000-ema-pruned.safetensors, Denoising strength: 0.4, Clip skip: 2, Ultimate SD upscale upscaler: 4x_NMKD-Siax_200k, Ultimate SD upscale tile_width: 512, Ultimate SD upscale tile_height: 512, Ultimate SD upscale mask_blur: 8, Ultimate SD upscale padding: 32, ControlNet 0: \"Module: tile_resample, Model: control_v11f1e_sd15_tile [a371b31b], Weight: 1, Resize Mode: Crop and Resize, Processor Res: 0.5, Threshold A: 0.5, Threshold B: 0.5, Guidance Start: 0, Guidance End: 1, Pixel Perfect: False, Control Mode: ControlNet is more important, Hr Option: Both\", Mask blur: 8, Inpaint area: Only masked, Masked area padding: 32, Version: f0.0.17v1.8.0rc-latest-269-gef35383�",
+      "Negative" : "BadDream, UnrealisticDream, jpeg, artifacts, bad quality, pixels, painting, watermark, signature, (hand:1.5),",
+      "Seed" : "281793503",
+      "Sampler" : "DPM++ 2M SDE Karras",
+      "Model" : "control_v11f1e_sd15_tile [a371b31b]",
+      "Height" : "1472",
+      "Prompt" : "blurred background, sharp focus, (2.5D animation), (disney CGI), (masterpiece), (best quality), (absurdres), (hdr),",
+      "Denoise" : "0.4",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "879db523c3",
+      "Width" : "3456"
+    },
+    "D:\\AI\\Art by me\\00004.jpeg" : {
+      "Raw" : "Postprocess upscale by: 2, Postprocess upscaler: 4x-UltraShar�",
+      "Height" : "2944",
+      "Prompt" : "Postprocess upscale by: 2, Postprocess upscaler: 4x-UltraShar�",
+      "Software" : "Unknown",
+      "Width" : "6912"
+    },
+    "D:\\AI\\Art by me\\00002.jpeg" : {
+      "Raw" : "Postprocess upscale by: 2, Postprocess upscaler: 8x_NMKD-Superscale_150000_�",
+      "Height" : "2944",
+      "Prompt" : "Postprocess upscale by: 2, Postprocess upscaler: 8x_NMKD-Superscale_150000_�",
+      "Software" : "Unknown",
+      "Width" : "6912"
+    },
+    "D:\\AI\\Art by me\\00000.jpeg" : {
+      "Raw" : "Postprocess upscale by: 2, Postprocess upscaler: 8x_NMKD-Superscale_150000_�",
+      "Height" : "2944",
+      "Prompt" : "Postprocess upscale by: 2, Postprocess upscaler: 8x_NMKD-Superscale_150000_�",
+      "Software" : "Unknown",
+      "Width" : "6912"
+    },
+    "D:\\AI\\Art by me\\00001.jpeg" : {
+      "Raw" : "Postprocess upscale by: 2, Postprocess upscaler: 8x_NMKD-Superscale_150000_�",
+      "Height" : "2944",
+      "Prompt" : "Postprocess upscale by: 2, Postprocess upscaler: 8x_NMKD-Superscale_150000_�",
+      "Software" : "Unknown",
+      "Width" : "6912"
+    },
+    "D:\\AI\\Art by me\\00023-2428140964.png" : {
+      "Steps" : "30",
+      "Loras" : "<lora:quiron_FloorJansen:1>, <lora:all_eyes_hands_skin_fin:0.4>",
+      "CFG" : "7.5",
+      "Raw" : "parameters: quiron_floorjansen,<lora:quiron_FloorJansen:1> is a woman warrior in skimpy armor and cloak sitting on ledge looking to the left, epic dark fantasy landscape with a crooked stream and a vibrant sunset, portal opening to another world in the distance, one small castle on a hill, ledge in foreground, masterpiece, intricate, dark fantasy art, rich in details, intricate details, <lora:all_eyes_hands_skin_fin:0.4>,PERFECT EYES,DETAILED SKIN\nNegative prompt: lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature\nSteps: 30, Sampler: DPM++ 2M SDE Karras, CFG scale: 7.5, Seed: 2428140964, Size: 7808x3328, Model hash: 8c4042921a, Model: aZovyaRPGArtistTools_v3VAE, Denoising strength: 0.2, Ultimate SD upscale upscaler: 4x-UltraSharp, Ultimate SD upscale tile_width: 512, Ultimate SD upscale tile_height: 512, Ultimate SD upscale mask_blur: 8, Ultimate SD upscale padding: 32, ADetailer model: face_yolov8n.pt, ADetailer confidence: 0.3, ADetailer dilate/erode: 4, ADetailer mask blur: 4, ADetailer denoising strength: 0.4, ADetailer inpaint only masked: True, ADetailer inpaint padding: 32, ADetailer version: 23.8.0, ControlNet 0: \"preprocessor: depth_midas, model: control_v11f1p_sd15_depth [cfd03158], weight: 1, starting/ending: (0, 1), resize mode: Crop and Resize, pixel perfect: True, control mode: ControlNet is more important, preprocessor params: (512, 100, 200)\", Lora hashes: \"quiron_FloorJansen: 099beec5193d, all_eyes_hands_skin_fin: b37c3e9a2db1\", Version: v1.5.1",
+      "Negative" : "lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature",
+      "Seed" : "2428140964",
+      "Sampler" : "DPM++ 2M SDE Karras",
+      "Model" : "control_v11f1p_sd15_depth [cfd03158]",
+      "Height" : "3328",
+      "Prompt" : "parameters: quiron_floorjansen,<lora:quiron_FloorJansen:1> is a woman warrior in skimpy armor and cloak sitting on ledge looking to the left, epic dark fantasy landscape with a crooked stream and a vibrant sunset, portal opening to another world in the distance, one small castle on a hill, ledge in foreground, masterpiece, intricate, dark fantasy art, rich in details, intricate details, <lora:all_eyes_hands_skin_fin:0.4>,PERFECT EYES,DETAILED SKIN",
+      "Denoise" : "0.2",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "8c4042921a",
+      "Width" : "7808"
+    },
+    "D:\\AI\\Art by me\\Floor the Valkyrie.png" : {
+      "Steps" : "20",
+      "Loras" : "<lora:quiron_FloorJansen:1>",
+      "CFG" : "7",
+      "Raw" : "parameters: quiron_floorjansen a young, sexy woman with smooth skin, eyeshadow and with wings standing in front of a mountain range with a sky background and clouds in the background, detailed eyes, hyperrealistic, realistic, Christen Dalsgaard, epic fantasy character art, concept art, fantasy art, <lora:quiron_FloorJansen:1>\nNegative prompt: UnrealisticDream, BadDream\nSteps: 20, Sampler: DPM++ 2M SDE Karras, CFG scale: 7, Seed: 1491861437, Size: 4096x6144, Model hash: 879db523c3, Model: dreamshaper_8, Denoising strength: 0.1, Ultimate SD upscale upscaler: 4x-UltraSharp, Ultimate SD upscale tile_width: 512, Ultimate SD upscale tile_height: 512, Ultimate SD upscale mask_blur: 8, Ultimate SD upscale padding: 32, ControlNet 0: \"preprocessor: tile_resample, model: control_v11f1e_sd15_tile [a371b31b], weight: 1, starting/ending: (0, 1), resize mode: Crop and Resize, pixel perfect: True, control mode: Balanced, preprocessor params: (-1, 1, -1)\", Lora hashes: \"quiron_FloorJansen: 099beec5193d\", TI hashes: \"UnrealisticDream: a77451e7ea07, BadDream: 758aac443515\", Version: v1.5.1",
+      "Negative" : "UnrealisticDream, BadDream",
+      "Seed" : "1491861437",
+      "Sampler" : "DPM++ 2M SDE Karras",
+      "Model" : "control_v11f1e_sd15_tile [a371b31b]",
+      "Height" : "6144",
+      "Prompt" : "parameters: quiron_floorjansen a young, sexy woman with smooth skin, eyeshadow and with wings standing in front of a mountain range with a sky background and clouds in the background, detailed eyes, hyperrealistic, realistic, Christen Dalsgaard, epic fantasy character art, concept art, fantasy art, <lora:quiron_FloorJansen:1>",
+      "Denoise" : "0.1",
+      "Software" : "A1111 / Forge",
+      "Model Hash" : "879db523c3",
+      "Width" : "4096"
+    },
+    "D:\\Dokument\\218300_10200958259090967_1807685786_o.jpg" : {
+      "Height" : "2048",
+      "Prompt" : "No metadata found in this image.",
+      "Width" : "1536"
+    }
+  }
+}
