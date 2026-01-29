@@ -10,7 +10,7 @@ import javafx.stage.Stage;
 
 import java.io.File;
 
-public class ToolboxLayout extends BorderPane {
+public class RootLayout extends BorderPane {
 
     private final CustomTitleBar titleBar;
     private final SidebarMenu sidebar;
@@ -20,7 +20,7 @@ public class ToolboxLayout extends BorderPane {
     private SpeedSorterView speedSorterView;
     private ScrubView scrubView;
 
-    public ToolboxLayout(Stage stage) {
+    public RootLayout(Stage stage) {
         this.sidebar = new SidebarMenu(this::switchView);
         this.setLeft(sidebar);
 
@@ -31,9 +31,12 @@ public class ToolboxLayout extends BorderPane {
 
         this.contentArea = new StackPane();
         this.contentArea.setStyle("-fx-background-color: -app-bg-deepest;");
-        this.setCenter(contentArea);
 
         this.imageBrowserView = new ImageBrowserView();
+        this.imageBrowserView.setMinSize(0, 0);
+        this.imageBrowserView.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+
+        this.setCenter(contentArea);
 
         File lastFolder = UserDataManager.getInstance().getLastFolder();
         if (lastFolder != null && lastFolder.exists()) {

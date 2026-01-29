@@ -1,6 +1,6 @@
 package com.nilsson.imagetoolbox;
 
-import com.nilsson.imagetoolbox.ui.ToolboxLayout;
+import com.nilsson.imagetoolbox.ui.RootLayout;
 import com.nilsson.imagetoolbox.ui.ResizeHelper;
 import javafx.application.Application;
 import javafx.geometry.Rectangle2D;
@@ -18,7 +18,7 @@ public class ImageToolboxApp extends Application {
         primaryStage.initStyle(StageStyle.TRANSPARENT);
 
         // 2. Main Layout
-        ToolboxLayout root = new ToolboxLayout(primaryStage);
+        RootLayout root = new RootLayout(primaryStage);
 
         Scene scene = new Scene(root, 1000, 700); // Default non-maximized size
         scene.setFill(Color.TRANSPARENT);

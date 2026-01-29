@@ -9,20 +9,19 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * Manages all persistent user data including starred images, tags, settings, custom lists,
+ * and pinned folders. Data is persisted to a JSON file using Jackson.
+ * <p>
+ * This class is thread-safe; all data modification methods are synchronized to prevent
+ * race conditions during concurrent UI and background task access.
+ */
 public class UserDataManager {
 
-    private static final String DATA_FILE = "data/userdata.json";
-    private static UserDataManager INSTANCE;
-
+    private static final File DATA_FILE = new File("data/userdata.json");
+    private static final UserDataManager INSTANCE = new UserDataManager();
     private final ObjectMapper mapper;
     private PersistentData data;
-
-    public static synchronized UserDataManager getInstance() {
-        if (INSTANCE == null) {
-            INSTANCE = new UserDataManager();
-        }
-        return INSTANCE;
-    }
 
     private UserDataManager() {
         mapper = new ObjectMapper();
@@ -30,21 +29,60 @@ public class UserDataManager {
         load();
     }
 
-    // --- STARS (Thread Safe) ---
-
-    public synchronized void addStar(File file) { addStar(file.getAbsolutePath()); }
-    public synchronized void addStar(String path) {
-        if (data.stars.add(path)) save();
+    public static UserDataManager getInstance() {
+        return INSTANCE;
     }
 
-    public synchronized void removeStar(File file) { removeStar(file.getAbsolutePath()); }
-    public synchronized void removeStar(String path) {
-        if (data.stars.remove(path)) save();
+    // ==================================================================================
+    // PINNED FOLDERS
+    // ==================================================================================
+
+    public synchronized List<File> getPinnedFolders() {
+        return data.pinnedFolders.stream()
+                .map(File::new)
+                .filter(File::exists)
+                .collect(Collectors.toList());
     }
 
-    public synchronized boolean isStarred(File file) { return isStarred(file.getAbsolutePath()); }
-    public synchronized boolean isStarred(String path) {
-        return data.stars.contains(path);
+    public synchronized void addPinnedFolder(File folder) {
+        if (folder != null && folder.isDirectory()) {
+            String path = folder.getAbsolutePath();
+            if (!data.pinnedFolders.contains(path)) {
+                data.pinnedFolders.add(path);
+                save();
+            }
+        }
+    }
+
+    public synchronized void removePinnedFolder(File folder) {
+        if (folder != null) {
+            data.pinnedFolders.remove(folder.getAbsolutePath());
+            save();
+        }
+    }
+
+    public synchronized boolean isPinned(File folder) {
+        return folder != null && data.pinnedFolders.contains(folder.getAbsolutePath());
+    }
+
+    // ==================================================================================
+    // STARS / FAVORITES
+    // ==================================================================================
+
+    public synchronized void addStar(File file) {
+        if (file != null && data.stars.add(file.getAbsolutePath())) {
+            save();
+        }
+    }
+
+    public synchronized void removeStar(File file) {
+        if (file != null && data.stars.remove(file.getAbsolutePath())) {
+            save();
+        }
+    }
+
+    public synchronized boolean isStarred(File file) {
+        return file != null && data.stars.contains(file.getAbsolutePath());
     }
 
     public synchronized void toggleStar(File file) {
@@ -59,9 +97,48 @@ public class UserDataManager {
                 .collect(Collectors.toList());
     }
 
-    // --- CUSTOM LISTS (Thread Safe) ---
+    // ==================================================================================
+    // TAGS
+    // ==================================================================================
 
-    public synchronized Set<String> getCustomListNames() { return new HashSet<>(data.customLists.keySet()); }
+    public synchronized void addTag(File file, String tag) {
+        if (file == null || tag == null || tag.isBlank()) return;
+        data.fileTags.computeIfAbsent(file.getAbsolutePath(), k -> new HashSet<>()).add(tag.trim());
+        save();
+    }
+
+    public synchronized void removeTag(File file, String tag) {
+        if (file == null || tag == null) return;
+        Set<String> tags = data.fileTags.get(file.getAbsolutePath());
+        if (tags != null && tags.remove(tag)) {
+            if (tags.isEmpty()) data.fileTags.remove(file.getAbsolutePath());
+            save();
+        }
+    }
+
+    public synchronized Set<String> getTags(File file) {
+        return file == null ? Collections.emptySet() :
+                new HashSet<>(data.fileTags.getOrDefault(file.getAbsolutePath(), Collections.emptySet()));
+    }
+
+    public synchronized List<File> findFilesByTag(String query) {
+        if (query == null || query.isBlank()) return new ArrayList<>();
+        String lowerQuery = query.toLowerCase();
+
+        return data.fileTags.entrySet().stream()
+                .filter(e -> e.getValue().stream().anyMatch(t -> t.toLowerCase().contains(lowerQuery)))
+                .map(e -> new File(e.getKey()))
+                .filter(File::exists)
+                .collect(Collectors.toList());
+    }
+
+    // ==================================================================================
+    // CUSTOM LISTS
+    // ==================================================================================
+
+    public synchronized Set<String> getCustomListNames() {
+        return new HashSet<>(data.customLists.keySet());
+    }
 
     public synchronized void createList(String name) {
         if (!data.customLists.containsKey(name)) {
@@ -71,12 +148,14 @@ public class UserDataManager {
     }
 
     public synchronized void deleteList(String name) {
-        if (data.customLists.remove(name) != null) save();
+        if (data.customLists.remove(name) != null) {
+            save();
+        }
     }
 
     public synchronized void addFileToList(String listName, File file) {
-        List<String> list = data.customLists.computeIfAbsent(listName, k -> new ArrayList<>());
-        if (!list.contains(file.getAbsolutePath())) {
+        List<String> list = data.customLists.get(listName);
+        if (list != null && !list.contains(file.getAbsolutePath())) {
             list.add(file.getAbsolutePath());
             save();
         }
@@ -85,42 +164,15 @@ public class UserDataManager {
     public synchronized List<File> getFilesFromList(String listName) {
         List<String> paths = data.customLists.get(listName);
         if (paths == null) return new ArrayList<>();
-        return paths.stream().map(File::new).filter(File::exists).collect(Collectors.toList());
+        return paths.stream()
+                .map(File::new)
+                .filter(File::exists)
+                .collect(Collectors.toList());
     }
 
-    // --- TAGS (Thread Safe) ---
-
-    public synchronized void addTag(File file, String tag) {
-        data.fileTags.computeIfAbsent(file.getAbsolutePath(), k -> new HashSet<>()).add(tag);
-        save();
-    }
-
-    public synchronized void removeTag(File file, String tag) {
-        Set<String> tags = data.fileTags.get(file.getAbsolutePath());
-        if (tags != null && tags.remove(tag)) {
-            save();
-        }
-    }
-
-    public synchronized Set<String> getTags(File file) {
-        return data.fileTags.getOrDefault(file.getAbsolutePath(), Collections.emptySet());
-    }
-
-    public synchronized List<File> findFilesByTag(String query) {
-        if (query == null || query.isBlank()) return new ArrayList<>();
-        String lowerQuery = query.toLowerCase();
-        List<File> results = new ArrayList<>();
-        for (Map.Entry<String, Set<String>> entry : data.fileTags.entrySet()) {
-            boolean match = entry.getValue().stream().anyMatch(t -> t.toLowerCase().contains(lowerQuery));
-            if (match) {
-                File f = new File(entry.getKey());
-                if (f.exists()) results.add(f);
-            }
-        }
-        return results;
-    }
-
-    // --- SETTINGS & PERSISTENCE ---
+    // ==================================================================================
+    // APP SETTINGS
+    // ==================================================================================
 
     public synchronized String getSetting(String key, String defaultValue) {
         return data.settings.getOrDefault(key, defaultValue);
@@ -141,70 +193,74 @@ public class UserDataManager {
     }
 
     public synchronized void setLastFolder(File folder) {
-        if (folder != null) {
+        if (folder != null && folder.isDirectory()) {
             data.settings.put("last_folder", folder.getAbsolutePath());
             save();
         }
     }
 
-    public synchronized boolean isGridMode() {
-        return Boolean.parseBoolean(data.settings.getOrDefault("view_mode_grid", "false"));
-    }
+    // ==================================================================================
+    // METADATA CACHE
+    // ==================================================================================
 
-    public synchronized void setGridMode(boolean grid) {
-        data.settings.put("view_mode_grid", String.valueOf(grid));
-        save();
-    }
-
-    // --- METADATA CACHE (For Search) ---
-    // Simple in-memory cache that persists to disk
     public synchronized void cacheMetadata(File file, Map<String, String> meta) {
-        // Only store if prompt exists to save space
-        if (meta.containsKey("Prompt")) {
+        if (file != null && meta != null && meta.containsKey("Prompt")) {
             data.metadataCache.put(file.getAbsolutePath(), meta);
-            // Don't save on every single cache update to avoid IO thrashing,
-            // but for safety we save occasionally or rely on other saves.
         }
     }
 
     public synchronized Map<String, String> getCachedMetadata(File file) {
-        return data.metadataCache.get(file.getAbsolutePath());
+        return file == null ? null : data.metadataCache.get(file.getAbsolutePath());
     }
 
+    // ==================================================================================
+    // PERSISTENCE LOGIC
+    // ==================================================================================
+
     private void load() {
-        File file = new File(DATA_FILE);
-        if (file.exists()) {
+        if (DATA_FILE.exists()) {
             try {
-                data = mapper.readValue(file, PersistentData.class);
+                data = mapper.readValue(DATA_FILE, PersistentData.class);
             } catch (IOException e) {
+                System.err.println("Failed to load user data: " + e.getMessage());
                 data = new PersistentData();
             }
         } else {
             data = new PersistentData();
         }
-        // Init nulls
-        if (data.stars == null) data.stars = new HashSet<>();
-        if (data.settings == null) data.settings = new HashMap<>();
-        if (data.customLists == null) data.customLists = new HashMap<>();
-        if (data.fileTags == null) data.fileTags = new HashMap<>();
-        if (data.metadataCache == null) data.metadataCache = new HashMap<>();
+        ensureDataIntegrity();
     }
 
     private synchronized void save() {
         try {
-            File file = new File(DATA_FILE);
-            if (!file.getParentFile().exists()) file.getParentFile().mkdirs();
-            mapper.writeValue(file, data);
+            if (!DATA_FILE.getParentFile().exists()) {
+                DATA_FILE.getParentFile().mkdirs();
+            }
+            mapper.writeValue(DATA_FILE, data);
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Failed to save user data: " + e.getMessage());
         }
     }
 
+    private void ensureDataIntegrity() {
+        if (data.stars == null) data.stars = new HashSet<>();
+        if (data.settings == null) data.settings = new HashMap<>();
+        if (data.customLists == null) data.customLists = new HashMap<>();
+        if (data.fileTags == null) data.fileTags = new ConcurrentHashMap<>();
+        if (data.metadataCache == null) data.metadataCache = new HashMap<>();
+        if (data.pinnedFolders == null) data.pinnedFolders = new ArrayList<>();
+    }
+
+    /**
+     * Inner POJO for JSON mapping.
+     * All fields stores paths as Strings to avoid serialization issues with File objects.
+     */
     private static class PersistentData {
         public Set<String> stars = new HashSet<>();
         public Map<String, String> settings = new HashMap<>();
         public Map<String, List<String>> customLists = new HashMap<>();
-        public Map<String, Set<String>> fileTags = new HashMap<>();
+        public Map<String, Set<String>> fileTags = new ConcurrentHashMap<>();
         public Map<String, Map<String, String>> metadataCache = new HashMap<>();
+        public List<String> pinnedFolders = new ArrayList<>();
     }
 }

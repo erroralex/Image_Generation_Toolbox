@@ -2,203 +2,314 @@ package com.nilsson.imagetoolbox.ui;
 
 import com.nilsson.imagetoolbox.data.UserDataManager;
 import javafx.application.Platform;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
-import javafx.scene.control.cell.TextFieldTreeCell;
 import javafx.scene.input.Dragboard;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.TransferMode;
-import javafx.scene.layout.*;
-import javafx.util.StringConverter;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
+import org.kordamp.ikonli.fontawesome.FontAwesome;
+import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
+/**
+ * Navigation component displaying a hierarchical file system tree with a specialized
+ * "Pinned" section for quick access. Supports lazy loading of directories,
+ * drag-and-drop file moving, and context menu actions for pinning folders.
+ */
 public class FolderNav extends VBox {
 
+    private final TreeView<File> treeView;
+    private final TextField searchField;
     private final Consumer<File> onFolderSelected;
     private final Consumer<List<File>> onCustomListSelected;
-    private final Runnable onRefreshNeeded;
-    private final TreeView<File> treeView;
+    private final Runnable onFilesMoved;
 
-    // Added callback for refresh
-    public FolderNav(Consumer<File> onFolderSelected, Consumer<List<File>> onCustomListSelected, Runnable onRefreshNeeded) {
+    private static final File PINNED_SECTION = new File("::PINNED::");
+    private static final File DRIVES_SECTION = new File("::DRIVES::");
+
+    public FolderNav(Consumer<File> onFolderSelected, Consumer<List<File>> onCustomListSelected, Runnable onFilesMoved) {
         this.onFolderSelected = onFolderSelected;
         this.onCustomListSelected = onCustomListSelected;
-        this.onRefreshNeeded = onRefreshNeeded;
+        this.onFilesMoved = onFilesMoved;
 
-        // Increased width as requested
-        this.setMinWidth(300);
-        this.getStyleClass().add("side-navigation");
-        this.setSpacing(0);
-        this.setPadding(new Insets(10));
+        this.setMinWidth(220);
+        this.setPrefWidth(260);
+        this.getStyleClass().add("folder-nav");
+        this.setSpacing(5);
+        this.setPadding(new Insets(10, 0, 0, 0));
 
-        // Header
-        Label lbl = new Label("Library");
-        lbl.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 16px; -fx-padding: 0 0 10 0;");
-        this.getChildren().add(lbl);
+        HBox searchBox = new HBox(5);
+        searchBox.setAlignment(Pos.CENTER_LEFT);
+        searchBox.setPadding(new Insets(0, 10, 5, 10));
 
-        // Search Field
-        TextField searchField = new TextField();
+        searchField = new TextField();
         searchField.setPromptText("Search tags...");
         searchField.getStyleClass().add("search-field");
-        searchField.setOnAction(e -> {
-            List<File> results = UserDataManager.getInstance().findFilesByTag(searchField.getText());
-            if (onCustomListSelected != null) onCustomListSelected.accept(results);
+        HBox.setHgrow(searchField, Priority.ALWAYS);
+
+        searchField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) performSearch();
         });
 
-        VBox topBox = new VBox(10, searchField);
-        topBox.setPadding(new Insets(0, 0, 10, 0));
-        this.getChildren().add(topBox);
+        searchField.textProperty().addListener((obs, old, val) -> { if(val.length() > 2) performSearch(); });
 
-        // File Tree
-        treeView = createFileSystemTree();
-        treeView.getStyleClass().add("nav-tree-view");
+        Button searchBtn = new Button();
+        searchBtn.setGraphic(new FontIcon(FontAwesome.SEARCH));
+        searchBtn.getStyleClass().add("icon-button");
+        searchBtn.setOnAction(e -> performSearch());
+
+        searchBox.getChildren().addAll(searchField, searchBtn);
+
+        Label label = new Label("Library");
+        label.getStyleClass().add("section-header");
+
+        treeView = new TreeView<>();
         treeView.setShowRoot(false);
+        treeView.getStyleClass().add("transparent-tree");
         VBox.setVgrow(treeView, Priority.ALWAYS);
 
-        this.getChildren().add(treeView);
-    }
+        treeView.setCellFactory(tv -> new FolderTreeCell());
 
-    // Fallback constructor for backwards compatibility if needed
-    public FolderNav(Consumer<File> onFolderSelected, Consumer<List<File>> onCustomListSelected) {
-        this(onFolderSelected, onCustomListSelected, null);
-    }
-
-    public void selectPath(File folder) {
-        if (folder == null || !folder.exists()) return;
-        Platform.runLater(() -> {
-            TreeItem<File> root = treeView.getRoot();
-            if (root == null) return;
-            TreeItem<File> item = findAndExpand(root, folder);
-            if (item != null) {
-                treeView.getSelectionModel().select(item);
-                int row = treeView.getRow(item);
-                if (row >= 0) treeView.scrollTo(row);
+        treeView.getSelectionModel().selectedItemProperty().addListener((obs, old, newVal) -> {
+            if (newVal != null && newVal.getValue() != null) {
+                File f = newVal.getValue();
+                if (!f.equals(PINNED_SECTION) && !f.equals(DRIVES_SECTION) && f.isDirectory()) {
+                    searchField.clear();
+                    onFolderSelected.accept(f);
+                }
             }
         });
+
+        this.getChildren().addAll(searchBox, new Separator(), label, treeView);
+        refreshTree();
     }
 
-    private TreeItem<File> findAndExpand(TreeItem<File> parent, File target) {
-        for (TreeItem<File> child : parent.getChildren()) {
-            if (child.getValue() == null) continue;
-            if (child.getValue().equals(target)) return child;
-            if (target.getAbsolutePath().startsWith(child.getValue().getAbsolutePath())) {
-                child.setExpanded(true);
-                return findAndExpand(child, target);
+    private void performSearch() {
+        String query = searchField.getText().trim();
+        if (query.isEmpty()) return;
+
+        treeView.getSelectionModel().clearSelection();
+        List<File> results = UserDataManager.getInstance().findFilesByTag(query);
+        if (onCustomListSelected != null) {
+            onCustomListSelected.accept(results);
+        }
+    }
+
+    public void selectPath(File path) {
+        if (path == null || !path.exists()) return;
+
+        for (TreeItem<File> section : treeView.getRoot().getChildren()) {
+            if (section.getValue().equals(PINNED_SECTION)) {
+                for (TreeItem<File> pin : section.getChildren()) {
+                    if (pin.getValue().equals(path)) {
+                        selectItem(pin);
+                        return;
+                    }
+                }
             }
         }
-        return null;
+        for (TreeItem<File> section : treeView.getRoot().getChildren()) {
+            if (section.getValue().equals(DRIVES_SECTION)) {
+                findAndSelectRecursive(section, path);
+                break;
+            }
+        }
     }
 
-    private TreeView<File> createFileSystemTree() {
-        TreeItem<File> dummyRoot = new TreeItem<>(new File("Computer"));
+    private boolean findAndSelectRecursive(TreeItem<File> parent, File target) {
+        parent.setExpanded(true);
+        for (TreeItem<File> child : parent.getChildren()) {
+            File childFile = child.getValue();
+            if (childFile.equals(target)) {
+                selectItem(child);
+                return true;
+            }
+            if (isParentOf(childFile, target)) {
+                if (findAndSelectRecursive(child, target)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isParentOf(File potentialParent, File target) {
+        String pPath = potentialParent.getAbsolutePath();
+        String tPath = target.getAbsolutePath();
+        if (!pPath.endsWith(File.separator)) pPath += File.separator;
+        return tPath.startsWith(pPath);
+    }
+
+    private void selectItem(TreeItem<File> item) {
+        treeView.getSelectionModel().select(item);
+        int row = treeView.getRow(item);
+        if (row >= 0) treeView.scrollTo(row);
+    }
+
+    public void refreshTree() {
+        TreeItem<File> invisibleRoot = new TreeItem<>(new File("root"));
+
+        TreeItem<File> pinnedRoot = new TreeItem<>(PINNED_SECTION);
+        pinnedRoot.setExpanded(true);
+        List<File> pins = UserDataManager.getInstance().getPinnedFolders();
+        for (File pin : pins) {
+            pinnedRoot.getChildren().add(new TreeItem<>(pin));
+        }
+
+        TreeItem<File> drivesRoot = new TreeItem<>(DRIVES_SECTION);
+        drivesRoot.setExpanded(true);
         File[] roots = File.listRoots();
         if (roots != null) {
-            for (File root : roots) dummyRoot.getChildren().add(createNode(root));
-        }
-        TreeView<File> tv = new TreeView<>(dummyRoot);
-
-        // IMPLEMENT DRAG AND DROP VIA CUSTOM CELL FACTORY
-        tv.setCellFactory(tree -> {
-            TreeCell<File> cell = new TextFieldTreeCell<>(new StringConverter<File>() {
-                @Override public String toString(File file) {
-                    if (file == null) return "";
-                    String name = file.getName();
-                    return (name == null || name.isEmpty()) ? file.toString() : name;
-                }
-                @Override public File fromString(String string) { return null; }
-            });
-
-            cell.setOnDragOver(event -> {
-                if (event.getGestureSource() != cell && event.getDragboard().hasFiles()) {
-                    File target = cell.getItem();
-                    if (target != null && target.isDirectory()) {
-                        event.acceptTransferModes(TransferMode.MOVE);
-                    }
-                }
-                event.consume();
-            });
-
-            cell.setOnDragDropped(event -> {
-                Dragboard db = event.getDragboard();
-                boolean success = false;
-                if (db.hasFiles()) {
-                    File targetFolder = cell.getItem();
-                    if (targetFolder != null && targetFolder.isDirectory()) {
-                        for (File file : db.getFiles()) {
-                            try {
-                                File dest = new File(targetFolder, file.getName());
-                                // Move the file
-                                Files.move(file.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE);
-                                success = true;
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        if (success && onRefreshNeeded != null) {
-                            onRefreshNeeded.run();
-                        }
-                    }
-                }
-                event.setDropCompleted(success);
-                event.consume();
-            });
-
-            return cell;
-        });
-
-        tv.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal != null && newVal.getValue() != null && newVal.getValue().isDirectory()) {
-                if (onFolderSelected != null) onFolderSelected.accept(newVal.getValue());
+            for (File drive : roots) {
+                if (drive.exists()) drivesRoot.getChildren().add(createNode(drive));
             }
-        });
-        return tv;
+        }
+
+        if (!pins.isEmpty()) invisibleRoot.getChildren().add(pinnedRoot);
+        invisibleRoot.getChildren().add(drivesRoot);
+
+        treeView.setRoot(invisibleRoot);
     }
 
-    private TreeItem<File> createNode(final File f) {
-        return new TreeItem<File>(f) {
+    private TreeItem<File> createNode(File file) {
+        return new TreeItem<File>(file) {
             private boolean isLeaf;
-            private boolean isFirstTimeLeaf = true;
             private boolean isFirstTimeChildren = true;
+            private boolean isFirstTimeLeaf = true;
 
-            @Override public boolean isLeaf() {
-                if (isFirstTimeLeaf) {
-                    isFirstTimeLeaf = false;
-                    File[] fList = getValue().listFiles(File::isDirectory);
-                    isLeaf = (fList == null || fList.length == 0);
-                }
-                return isLeaf;
-            }
-
-            @Override public ObservableList<TreeItem<File>> getChildren() {
+            @Override
+            public javafx.collections.ObservableList<TreeItem<File>> getChildren() {
                 if (isFirstTimeChildren) {
                     isFirstTimeChildren = false;
                     super.getChildren().setAll(buildChildren(this));
                 }
                 return super.getChildren();
             }
+
+            @Override
+            public boolean isLeaf() {
+                if (isFirstTimeLeaf) {
+                    isFirstTimeLeaf = false;
+                    isLeaf = file.isFile();
+                }
+                return isLeaf;
+            }
+
+            private java.util.List<TreeItem<File>> buildChildren(TreeItem<File> item) {
+                File f = item.getValue();
+                if (f != null && f.isDirectory()) {
+                    File[] files = f.listFiles(File::isDirectory);
+                    if (files != null) {
+                        return Arrays.stream(files)
+                                .map(FolderNav.this::createNode)
+                                .collect(java.util.stream.Collectors.toList());
+                    }
+                }
+                return java.util.Collections.emptyList();
+            }
         };
     }
 
-    private ObservableList<TreeItem<File>> buildChildren(TreeItem<File> treeItem) {
-        File f = treeItem.getValue();
-        if (f != null && f.isDirectory()) {
-            File[] files = f.listFiles(File::isDirectory);
-            if (files != null) {
-                ObservableList<TreeItem<File>> children = FXCollections.observableArrayList();
-                for (File childFile : files) {
-                    if (!childFile.isHidden()) children.add(createNode(childFile));
+    private class FolderTreeCell extends TreeCell<File> {
+        public FolderTreeCell() {
+            setOnDragOver(event -> {
+                if (getItem() != null && getItem().isDirectory() && event.getDragboard().hasFiles()) {
+                    event.acceptTransferModes(TransferMode.MOVE);
                 }
-                return children;
+                event.consume();
+            });
+
+            setOnDragDropped(event -> {
+                Dragboard db = event.getDragboard();
+                if (db.hasFiles() && getItem() != null) {
+                    boolean success = true;
+                    for (File source : db.getFiles()) {
+                        File target = new File(getItem(), source.getName());
+                        if (source.renameTo(target)) {
+                            System.out.println("Moved " + source.getName());
+                        } else {
+                            success = false;
+                        }
+                    }
+                    event.setDropCompleted(success);
+                    if (success && onFilesMoved != null) onFilesMoved.run();
+                    event.consume();
+                }
+            });
+        }
+
+        @Override
+        protected void updateItem(File item, boolean empty) {
+            super.updateItem(item, empty);
+
+            getStyleClass().remove("nav-tree-header");
+            setStyle("");
+
+            if (empty || item == null) {
+                setText(null);
+                setGraphic(null);
+                setContextMenu(null);
+            } else {
+                boolean isPinnedHeader = item.equals(PINNED_SECTION);
+                boolean isDrivesHeader = item.equals(DRIVES_SECTION);
+                TreeItem<File> parent = getTreeItem().getParent();
+                boolean isInsidePinnedSection = parent != null && PINNED_SECTION.equals(parent.getValue());
+
+                if (isPinnedHeader) {
+                    setText("PINNED");
+                    setGraphic(new FontIcon(FontAwesome.THUMB_TACK));
+                    getStyleClass().add("nav-tree-header");
+                } else if (isDrivesHeader) {
+                    setText("THIS PC");
+                    setGraphic(new FontIcon(FontAwesome.DESKTOP));
+                    getStyleClass().add("nav-tree-header");
+                } else {
+                    String name = item.getName();
+                    if (name.isEmpty()) name = item.toString();
+                    setText(name);
+
+                    FontIcon icon = isInsidePinnedSection
+                            ? new FontIcon(FontAwesome.THUMB_TACK)
+                            : new FontIcon(FontAwesome.FOLDER_O);
+
+                    if (isInsidePinnedSection) icon.setStyle("-fx-icon-color: #777;");
+                    setGraphic(icon);
+                }
+
+                if (!isPinnedHeader && !isDrivesHeader) {
+                    ContextMenu cm = new ContextMenu();
+                    MenuItem open = new MenuItem("Open in Explorer");
+                    open.setOnAction(e -> { try { java.awt.Desktop.getDesktop().open(item); } catch (Exception ex) {} });
+                    cm.getItems().add(open);
+
+                    if (isInsidePinnedSection) {
+                        MenuItem unpin = new MenuItem("Unpin Folder");
+                        unpin.setOnAction(e -> {
+                            UserDataManager.getInstance().removePinnedFolder(item);
+                            refreshTree();
+                        });
+                        cm.getItems().add(unpin);
+                    } else {
+                        if (!UserDataManager.getInstance().isPinned(item)) {
+                            MenuItem pin = new MenuItem("Pin Folder");
+                            pin.setOnAction(e -> {
+                                UserDataManager.getInstance().addPinnedFolder(item);
+                                refreshTree();
+                            });
+                            cm.getItems().add(pin);
+                        }
+                    }
+                    setContextMenu(cm);
+                } else {
+                    setContextMenu(null);
+                }
             }
         }
-        return FXCollections.emptyObservableList();
     }
 }
