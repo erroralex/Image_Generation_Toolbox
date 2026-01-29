@@ -389,3 +389,54 @@
     -fx-background-color: -app-grad-primary;
     -fx-text-fill: white;
 }
+
+/* ===================================================================================
+ * 10. TREE VIEW & NAVIGATION FIXES
+ * ===================================================================================
+ */
+
+/* 1. Fix "Library" Title */
+.section-header {
+    -fx-text-fill: -text-primary;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-padding: 10 0 5 15;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 4, 0, 0, 1);
+}
+
+/* 2. Fix Pinned/Drive Headers */
+.nav-tree-header {
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-text-fill: -app-cyan; /* Text stays Cyan */
+    -fx-padding: 5 0 5 0;
+}
+
+/* FIX: Use Gradient for Icons instead of Solid Cyan */
+.nav-tree-header .ikonli-font-icon {
+    -fx-icon-color: -app-grad-primary;
+    -fx-fill: -app-grad-primary;
+}
+
+/* 3. Tree Cells */
+.tree-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -text-secondary;
+    -fx-padding: 4 0 4 0;
+    -fx-font-size: 13px;
+}
+
+.tree-cell:filled:hover {
+    -fx-background-color: rgba(102,252,241,0.08);
+    -fx-text-fill: white;
+}
+
+.tree-cell:filled:selected,
+.tree-cell:filled:selected:focused {
+    -fx-background-color: -app-grad-primary;
+    -fx-text-fill: white;
+}
+.tree-cell:filled:selected .ikonli-font-icon {
+    -fx-fill: white;
+    -fx-icon-color: white;
+}

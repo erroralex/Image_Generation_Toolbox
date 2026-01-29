@@ -2,7 +2,7 @@
   "stars" : [ "D:\\AI\\Art by me\\Keep\\00047-281793503.jpeg", "C:\\Downloads\\Test images\\532088194-dc40ce32-bcfb-4cfc-8204-a3bb89a3330b.webp", "D:\\AI\\Art by me\\00002.jpeg" ],
   "settings" : {
     "view_mode_grid" : "false",
-    "last_folder" : "C:\\Downloads\\Test images"
+    "last_folder" : "D:\\AI\\Outputs\\2025-02-23"
   },
   "customLists" : { },
   "fileTags" : {
@@ -298,5 +298,6 @@
       "Prompt" : "No metadata found in this image.",
       "Width" : "1536"
     }
-  }
+  },
+  "pinnedFolders" : [ "D:\\AI\\Art by me", "C:\\Downloads\\Test images", "D:\\AI\\Outputs\\2025-02-23" ]
 }
