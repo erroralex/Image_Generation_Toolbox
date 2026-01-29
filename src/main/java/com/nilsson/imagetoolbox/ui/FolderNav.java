@@ -32,6 +32,8 @@ public class FolderNav extends VBox {
     private final Consumer<List<File>> onCustomListSelected;
     private final Runnable onFilesMoved;
 
+    // Virtual File Placeholders
+    private static final File STARRED_SECTION = new File("::STARRED::");
     private static final File PINNED_SECTION = new File("::PINNED::");
     private static final File DRIVES_SECTION = new File("::DRIVES::");
 
@@ -78,9 +80,22 @@ public class FolderNav extends VBox {
 
         treeView.setCellFactory(tv -> new FolderTreeCell());
 
+        // --- Selection Logic ---
         treeView.getSelectionModel().selectedItemProperty().addListener((obs, old, newVal) -> {
             if (newVal != null && newVal.getValue() != null) {
                 File f = newVal.getValue();
+
+                // 1. Handle Starred Click
+                if (f.equals(STARRED_SECTION)) {
+                    searchField.clear();
+                    if (onCustomListSelected != null) {
+                        List<File> starredFiles = UserDataManager.getInstance().getStarredFilesList();
+                        onCustomListSelected.accept(starredFiles);
+                    }
+                    return;
+                }
+
+                // 2. Handle Standard Directory Click (Ignore Headers)
                 if (!f.equals(PINNED_SECTION) && !f.equals(DRIVES_SECTION) && f.isDirectory()) {
                     searchField.clear();
                     onFolderSelected.accept(f);
@@ -155,13 +170,22 @@ public class FolderNav extends VBox {
     public void refreshTree() {
         TreeItem<File> invisibleRoot = new TreeItem<>(new File("root"));
 
+        // 1. Starred Section (Top)
+        TreeItem<File> starredNode = new TreeItem<>(STARRED_SECTION);
+        invisibleRoot.getChildren().add(starredNode);
+
+        // 2. Pinned Section
         TreeItem<File> pinnedRoot = new TreeItem<>(PINNED_SECTION);
         pinnedRoot.setExpanded(true);
         List<File> pins = UserDataManager.getInstance().getPinnedFolders();
         for (File pin : pins) {
             pinnedRoot.getChildren().add(new TreeItem<>(pin));
         }
+        if (!pins.isEmpty()) {
+            invisibleRoot.getChildren().add(pinnedRoot);
+        }
 
+        // 3. Drives Section
         TreeItem<File> drivesRoot = new TreeItem<>(DRIVES_SECTION);
         drivesRoot.setExpanded(true);
         File[] roots = File.listRoots();
@@ -170,8 +194,6 @@ public class FolderNav extends VBox {
                 if (drive.exists()) drivesRoot.getChildren().add(createNode(drive));
             }
         }
-
-        if (!pins.isEmpty()) invisibleRoot.getChildren().add(pinnedRoot);
         invisibleRoot.getChildren().add(drivesRoot);
 
         treeView.setRoot(invisibleRoot);
@@ -256,12 +278,20 @@ public class FolderNav extends VBox {
                 setGraphic(null);
                 setContextMenu(null);
             } else {
+                boolean isStarredHeader = item.equals(STARRED_SECTION);
                 boolean isPinnedHeader = item.equals(PINNED_SECTION);
                 boolean isDrivesHeader = item.equals(DRIVES_SECTION);
                 TreeItem<File> parent = getTreeItem().getParent();
                 boolean isInsidePinnedSection = parent != null && PINNED_SECTION.equals(parent.getValue());
 
-                if (isPinnedHeader) {
+                if (isStarredHeader) {
+                    setText("Starred");
+                    // Gold star for distinction
+                    FontIcon starIcon = new FontIcon(FontAwesome.STAR);
+                    starIcon.setStyle("-fx-icon-color: #FFD700;");
+                    setGraphic(starIcon);
+                    getStyleClass().add("nav-tree-header");
+                } else if (isPinnedHeader) {
                     setText("PINNED");
                     setGraphic(new FontIcon(FontAwesome.THUMB_TACK));
                     getStyleClass().add("nav-tree-header");
@@ -282,7 +312,8 @@ public class FolderNav extends VBox {
                     setGraphic(icon);
                 }
 
-                if (!isPinnedHeader && !isDrivesHeader) {
+                // Context Menus
+                if (!isStarredHeader && !isPinnedHeader && !isDrivesHeader) {
                     ContextMenu cm = new ContextMenu();
                     MenuItem open = new MenuItem("Open in Explorer");
                     open.setOnAction(e -> { try { java.awt.Desktop.getDesktop().open(item); } catch (Exception ex) {} });

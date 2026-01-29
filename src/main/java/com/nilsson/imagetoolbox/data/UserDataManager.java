@@ -6,15 +6,15 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
  * Manages all persistent user data including starred images, tags, settings, custom lists,
  * and pinned folders. Data is persisted to a JSON file using Jackson.
  * <p>
- * This class is thread-safe; all data modification methods are synchronized to prevent
- * race conditions during concurrent UI and background task access.
+ * This version uses a DEBOUNCED save mechanism to prevent UI freezes during high-frequency
+ * updates (like tagging or auto-indexing).
  */
 public class UserDataManager {
 
@@ -23,10 +23,21 @@ public class UserDataManager {
     private final ObjectMapper mapper;
     private PersistentData data;
 
+    // Persistence Debouncing
+    private final ScheduledExecutorService saveScheduler = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> pendingSave;
+
     private UserDataManager() {
         mapper = new ObjectMapper();
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
         load();
+
+        // Ensure save on exit to capture any pending writes
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (pendingSave != null && !pendingSave.isDone()) {
+                saveImmediate();
+            }
+        }));
     }
 
     public static UserDataManager getInstance() {
@@ -49,7 +60,7 @@ public class UserDataManager {
             String path = folder.getAbsolutePath();
             if (!data.pinnedFolders.contains(path)) {
                 data.pinnedFolders.add(path);
-                save();
+                scheduleSave();
             }
         }
     }
@@ -57,7 +68,7 @@ public class UserDataManager {
     public synchronized void removePinnedFolder(File folder) {
         if (folder != null) {
             data.pinnedFolders.remove(folder.getAbsolutePath());
-            save();
+            scheduleSave();
         }
     }
 
@@ -71,13 +82,13 @@ public class UserDataManager {
 
     public synchronized void addStar(File file) {
         if (file != null && data.stars.add(file.getAbsolutePath())) {
-            save();
+            scheduleSave();
         }
     }
 
     public synchronized void removeStar(File file) {
         if (file != null && data.stars.remove(file.getAbsolutePath())) {
-            save();
+            scheduleSave();
         }
     }
 
@@ -104,7 +115,7 @@ public class UserDataManager {
     public synchronized void addTag(File file, String tag) {
         if (file == null || tag == null || tag.isBlank()) return;
         data.fileTags.computeIfAbsent(file.getAbsolutePath(), k -> new HashSet<>()).add(tag.trim());
-        save();
+        scheduleSave();
     }
 
     public synchronized void removeTag(File file, String tag) {
@@ -112,7 +123,7 @@ public class UserDataManager {
         Set<String> tags = data.fileTags.get(file.getAbsolutePath());
         if (tags != null && tags.remove(tag)) {
             if (tags.isEmpty()) data.fileTags.remove(file.getAbsolutePath());
-            save();
+            scheduleSave();
         }
     }
 
@@ -121,15 +132,41 @@ public class UserDataManager {
                 new HashSet<>(data.fileTags.getOrDefault(file.getAbsolutePath(), Collections.emptySet()));
     }
 
-    public synchronized List<File> findFilesByTag(String query) {
+    // ==================================================================================
+    // SEARCH ENGINE (Expanded Scope)
+    // ==================================================================================
+
+    public synchronized List<File> findFiles(String query) {
         if (query == null || query.isBlank()) return new ArrayList<>();
         String lowerQuery = query.toLowerCase();
 
-        return data.fileTags.entrySet().stream()
-                .filter(e -> e.getValue().stream().anyMatch(t -> t.toLowerCase().contains(lowerQuery)))
-                .map(e -> new File(e.getKey()))
+        Set<String> matchedPaths = new HashSet<>();
+
+        // 1. Search Tags
+        data.fileTags.forEach((path, tags) -> {
+            if (tags.stream().anyMatch(t -> t.toLowerCase().contains(lowerQuery))) {
+                matchedPaths.add(path);
+            }
+        });
+
+        // 2. Search Cached Metadata (Prompt, Model, etc.)
+        data.metadataCache.forEach((path, meta) -> {
+            boolean metaMatch = meta.values().stream()
+                    .anyMatch(val -> val != null && val.toLowerCase().contains(lowerQuery));
+            if (metaMatch) matchedPaths.add(path);
+        });
+
+        return matchedPaths.stream()
+                .map(File::new)
                 .filter(File::exists)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Compatibility method for existing code.
+     */
+    public List<File> findFilesByTag(String query) {
+        return findFiles(query);
     }
 
     // ==================================================================================
@@ -143,13 +180,13 @@ public class UserDataManager {
     public synchronized void createList(String name) {
         if (!data.customLists.containsKey(name)) {
             data.customLists.put(name, new ArrayList<>());
-            save();
+            scheduleSave();
         }
     }
 
     public synchronized void deleteList(String name) {
         if (data.customLists.remove(name) != null) {
-            save();
+            scheduleSave();
         }
     }
 
@@ -157,7 +194,7 @@ public class UserDataManager {
         List<String> list = data.customLists.get(listName);
         if (list != null && !list.contains(file.getAbsolutePath())) {
             list.add(file.getAbsolutePath());
-            save();
+            scheduleSave();
         }
     }
 
@@ -174,13 +211,19 @@ public class UserDataManager {
     // APP SETTINGS
     // ==================================================================================
 
+    /**
+     * Retrieves a persistent setting string.
+     * @param key The setting key
+     * @param defaultValue Value to return if key is missing
+     * @return The setting value or defaultValue
+     */
     public synchronized String getSetting(String key, String defaultValue) {
         return data.settings.getOrDefault(key, defaultValue);
     }
 
     public synchronized void setSetting(String key, String value) {
         data.settings.put(key, value);
-        save();
+        scheduleSave();
     }
 
     public synchronized File getLastFolder() {
@@ -195,7 +238,7 @@ public class UserDataManager {
     public synchronized void setLastFolder(File folder) {
         if (folder != null && folder.isDirectory()) {
             data.settings.put("last_folder", folder.getAbsolutePath());
-            save();
+            scheduleSave();
         }
     }
 
@@ -203,9 +246,16 @@ public class UserDataManager {
     // METADATA CACHE
     // ==================================================================================
 
+    public synchronized boolean hasCachedMetadata(File file) {
+        return file != null && data.metadataCache.containsKey(file.getAbsolutePath());
+    }
+
     public synchronized void cacheMetadata(File file, Map<String, String> meta) {
-        if (file != null && meta != null && meta.containsKey("Prompt")) {
-            data.metadataCache.put(file.getAbsolutePath(), meta);
+        if (file != null && meta != null && !meta.isEmpty()) {
+            if (!data.metadataCache.containsKey(file.getAbsolutePath())) {
+                data.metadataCache.put(file.getAbsolutePath(), meta);
+                scheduleSave();
+            }
         }
     }
 
@@ -231,12 +281,21 @@ public class UserDataManager {
         ensureDataIntegrity();
     }
 
-    private synchronized void save() {
+    private synchronized void scheduleSave() {
+        if (pendingSave != null && !pendingSave.isDone()) {
+            pendingSave.cancel(false);
+        }
+        // Wait 3 seconds before writing to disk
+        pendingSave = saveScheduler.schedule(this::saveImmediate, 3, TimeUnit.SECONDS);
+    }
+
+    private synchronized void saveImmediate() {
         try {
             if (!DATA_FILE.getParentFile().exists()) {
                 DATA_FILE.getParentFile().mkdirs();
             }
             mapper.writeValue(DATA_FILE, data);
+            System.out.println("User data saved to disk.");
         } catch (IOException e) {
             System.err.println("Failed to save user data: " + e.getMessage());
         }
@@ -251,10 +310,6 @@ public class UserDataManager {
         if (data.pinnedFolders == null) data.pinnedFolders = new ArrayList<>();
     }
 
-    /**
-     * Inner POJO for JSON mapping.
-     * All fields stores paths as Strings to avoid serialization issues with File objects.
-     */
     private static class PersistentData {
         public Set<String> stars = new HashSet<>();
         public Map<String, String> settings = new HashMap<>();

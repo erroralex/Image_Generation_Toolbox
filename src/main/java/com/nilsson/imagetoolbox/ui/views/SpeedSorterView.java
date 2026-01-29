@@ -58,7 +58,7 @@ public class SpeedSorterView extends VBox {
     public SpeedSorterView() {
         this.setPadding(new Insets(20));
         this.setSpacing(15);
-        this.getStyleClass().add("content-view");
+        this.getStyleClass().add("speed-sorter-view"); // Matches CSS class
         this.setAlignment(Pos.TOP_CENTER);
 
         // --- Top Bar ---
@@ -68,6 +68,7 @@ public class SpeedSorterView extends VBox {
         Label title = new Label("Speed Sorter");
         title.getStyleClass().add("content-title");
 
+        // Fixed: Use -text-primary (which exists in CSS)
         infoLabel.setStyle("-fx-text-fill: -text-primary; -fx-font-size: 18px; -fx-font-weight: bold; -fx-effect: dropshadow(gaussian, black, 2, 1, 0, 0);");
 
         Button btnSelectInput = new Button("Select Input Folder");
@@ -75,18 +76,24 @@ public class SpeedSorterView extends VBox {
         btnSelectInput.getStyleClass().add("button");
         btnSelectInput.setOnAction(e -> selectInputFolder());
 
-        currentPathLabel.setStyle("-fx-text-fill: -app-text-muted; -fx-font-size: 12px; -fx-font-style: italic;");
+        // Fixed: Use -text-muted instead of -app-text-muted
+        currentPathLabel.setStyle("-fx-text-fill: -text-muted; -fx-font-size: 12px; -fx-font-style: italic;");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        progressLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: -app-text-muted;");
+        // Fixed: Use -text-muted instead of -app-text-muted
+        progressLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: -text-muted;");
 
         topBar.getChildren().addAll(title, btnSelectInput, currentPathLabel, spacer, progressLabel);
 
         // --- Main Image Area ---
         StackPane imageContainer = new StackPane();
-        imageContainer.setStyle("-fx-background-color: #0b0e14; -fx-background-radius: 8; -fx-border-color: #2d3748; -fx-border-radius: 8;");
+
+        // FIX: Replaced inline CSS with Java API to prevent ClassCastException
+        imageContainer.setBackground(new Background(new BackgroundFill(Color.web("#0b0e14"), new CornerRadii(8), Insets.EMPTY)));
+        imageContainer.setBorder(new Border(new BorderStroke(Color.web("#2d3748"), BorderStrokeStyle.SOLID, new CornerRadii(8), BorderWidths.DEFAULT)));
+
         imageContainer.setMinSize(0, 0);
         VBox.setVgrow(imageContainer, Priority.ALWAYS);
 
@@ -96,6 +103,7 @@ public class SpeedSorterView extends VBox {
         mainImageView.fitWidthProperty().bind(Bindings.max(0, imageContainer.widthProperty().subtract(20)));
         mainImageView.fitHeightProperty().bind(Bindings.max(0, imageContainer.heightProperty().subtract(20)));
 
+        // Fixed: Color code directly is fine, or use variable
         infoLabel.setStyle("-fx-text-fill: #718096; -fx-font-size: 16px;");
 
         fullscreenHint.setStyle("-fx-text-fill: rgba(255,255,255,0.3); -fx-font-size: 11px; -fx-padding: 5;");
@@ -130,7 +138,8 @@ public class SpeedSorterView extends VBox {
             box.setAlignment(Pos.CENTER);
 
             Label keyLabel = new Label("Key [" + (i + 1) + "]");
-            keyLabel.setStyle("-fx-text-fill: -app-accent; -fx-font-weight: bold;");
+            // Fixed: Use -app-cyan instead of -app-accent
+            keyLabel.setStyle("-fx-text-fill: -app-cyan; -fx-font-weight: bold;");
 
             Button btn = new Button("Set Folder");
             btn.getStyleClass().add("button");
@@ -146,10 +155,14 @@ public class SpeedSorterView extends VBox {
         extraControls.setAlignment(Pos.CENTER_LEFT);
         Label deleteLabel = new Label("DEL / X : Recycle Bin");
         deleteLabel.setStyle("-fx-text-fill: #e53e3e; -fx-font-size: 11px;");
+
         Label undoLabel = new Label("Ctrl+Z : Undo Move");
-        undoLabel.setStyle("-fx-text-fill: -app-text-muted; -fx-font-size: 11px;");
+        // Fixed: Use -text-muted
+        undoLabel.setStyle("-fx-text-fill: -text-muted; -fx-font-size: 11px;");
+
         Label spaceLabel = new Label("SPACE : Skip");
-        spaceLabel.setStyle("-fx-text-fill: -app-text-muted; -fx-font-size: 11px;");
+        // Fixed: Use -text-muted
+        spaceLabel.setStyle("-fx-text-fill: -text-muted; -fx-font-size: 11px;");
 
         extraControls.getChildren().addAll(deleteLabel, undoLabel, spaceLabel);
         controls.getChildren().add(extraControls);
