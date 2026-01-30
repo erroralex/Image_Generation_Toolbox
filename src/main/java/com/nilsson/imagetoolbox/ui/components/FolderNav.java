@@ -17,43 +17,57 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Navigation component displaying a file system tree.
- * <p>
- * This view handles the display of pinned folders, drives, and the file hierarchy.
- * Directory expansion is handled asynchronously to prevent UI freezing during I/O operations.
- * It does not fetch data from the database but delegates user actions to the {@link FolderNavListener}.
+ Navigation component displaying a file system tree and Virtual Collections.
+ This sidebar component allows users to browse physical drives, access pinned folders,
+ view starred images, and manage virtual collections via drag-and-drop operations.
  */
 public class FolderNav extends VBox {
 
+    /**
+     Interface for handling navigation and collection events.
+     */
     public interface FolderNavListener {
         void onFolderSelected(File folder);
+
+        void onCollectionSelected(String collectionName);
+
         void onSearch(String query);
+
         void onShowStarred();
+
         void onPinFolder(File folder);
+
         void onUnpinFolder(File folder);
+
         void onFilesMoved();
+
+        void onCreateCollection(String name);
+
+        void onDeleteCollection(String name);
+
+        void onAddFilesToCollection(String collectionName, List<File> files);
     }
 
-    // ==================================================================================
-    // FIELDS & CONSTANTS
-    // ==================================================================================
-
+    // --- Static Constants ---
     private static final File STARRED_SECTION = new File("::STARRED::");
     private static final File PINNED_SECTION = new File("::PINNED::");
+    private static final File COLLECTIONS_SECTION = new File("::COLLECTIONS::");
     private static final File DRIVES_SECTION = new File("::DRIVES::");
 
+    // --- UI Fields ---
     private final TreeView<File> treeView;
     private final TextField searchField;
     private final FolderNavListener listener;
 
+    // --- Data State ---
     private List<File> pinnedFolders = new ArrayList<>();
+    private List<String> collections = new ArrayList<>();
 
-    // ==================================================================================
-    // CONSTRUCTOR & INITIALIZATION
-    // ==================================================================================
+    // --- Constructor ---
 
     public FolderNav(FolderNavListener listener) {
         this.listener = listener;
@@ -64,7 +78,7 @@ public class FolderNav extends VBox {
         this.setSpacing(5);
         this.setPadding(new Insets(10, 0, 0, 0));
 
-        // Search Box
+        // --- Search Box Section ---
         HBox searchBox = new HBox(5);
         searchBox.setAlignment(Pos.CENTER_LEFT);
         searchBox.setPadding(new Insets(0, 10, 5, 10));
@@ -78,10 +92,6 @@ public class FolderNav extends VBox {
             if (e.getCode() == KeyCode.ENTER) performSearch();
         });
 
-        searchField.textProperty().addListener((obs, old, val) -> {
-            if (val.length() > 2) performSearch();
-        });
-
         Button searchBtn = new Button();
         searchBtn.setGraphic(new FontIcon(FontAwesome.SEARCH));
         searchBtn.getStyleClass().add("icon-button");
@@ -92,7 +102,7 @@ public class FolderNav extends VBox {
         Label label = new Label("Library");
         label.getStyleClass().add("section-header");
 
-        // Tree View
+        // --- Tree View Section ---
         treeView = new TreeView<>();
         treeView.setShowRoot(false);
         treeView.getStyleClass().add("transparent-tree");
@@ -103,11 +113,12 @@ public class FolderNav extends VBox {
             if (newVal != null && newVal.getValue() != null) {
                 File f = newVal.getValue();
                 if (f.equals(STARRED_SECTION)) {
-                    searchField.clear();
-                    if (listener != null) listener.onShowStarred();
-                } else if (!f.equals(PINNED_SECTION) && !f.equals(DRIVES_SECTION) && f.isDirectory()) {
-                    searchField.clear();
-                    if (listener != null) listener.onFolderSelected(f);
+                    listener.onShowStarred();
+                } else if (f.getPath().startsWith("::COL::")) {
+                    String colName = f.getName();
+                    listener.onCollectionSelected(colName);
+                } else if (!f.equals(PINNED_SECTION) && !f.equals(DRIVES_SECTION) && !f.equals(COLLECTIONS_SECTION) && f.isDirectory()) {
+                    listener.onFolderSelected(f);
                 }
             }
         });
@@ -116,59 +127,41 @@ public class FolderNav extends VBox {
         refreshTree();
     }
 
-    // ==================================================================================
-    // PUBLIC API
-    // ==================================================================================
+    // --- Public API ---
 
     public void setPinnedFolders(List<File> pinnedFolders) {
         this.pinnedFolders = (pinnedFolders != null) ? pinnedFolders : new ArrayList<>();
         refreshTree();
     }
 
-    public void selectPath(File path) {
-        if (path == null || !path.exists()) return;
-
-        if (treeView.getRoot() != null) {
-            // Check pinned folders first
-            for (TreeItem<File> section : treeView.getRoot().getChildren()) {
-                if (PINNED_SECTION.equals(section.getValue())) {
-                    for (TreeItem<File> pin : section.getChildren()) {
-                        if (path.equals(pin.getValue())) {
-                            selectItem(pin);
-                            return;
-                        }
-                    }
-                }
-            }
-            // Check drives
-            for (TreeItem<File> section : treeView.getRoot().getChildren()) {
-                if (DRIVES_SECTION.equals(section.getValue())) {
-                    findAndSelectRecursive(section, path);
-                    break;
-                }
-            }
-        }
+    public void setCollections(List<String> collections) {
+        this.collections = (collections != null) ? collections : new ArrayList<>();
+        refreshTree();
     }
 
-    // ==================================================================================
-    // PRIVATE METHODS
-    // ==================================================================================
+    // --- Private Logic ---
 
     private void performSearch() {
         String query = searchField.getText().trim();
-        if (query.isEmpty() || listener == null) return;
-        treeView.getSelectionModel().clearSelection();
-        listener.onSearch(query);
+        if (!query.isEmpty() && listener != null) {
+            treeView.getSelectionModel().clearSelection();
+            listener.onSearch(query);
+        }
     }
 
     private void refreshTree() {
         TreeItem<File> invisibleRoot = new TreeItem<>(new File("root"));
 
-        // 1. Starred
-        TreeItem<File> starredNode = new TreeItem<>(STARRED_SECTION);
-        invisibleRoot.getChildren().add(starredNode);
+        invisibleRoot.getChildren().add(new TreeItem<>(STARRED_SECTION));
 
-        // 2. Pinned
+        TreeItem<File> collectionRoot = new TreeItem<>(COLLECTIONS_SECTION);
+        collectionRoot.setExpanded(true);
+        for (String colName : collections) {
+            File colFile = new File("::COL::", colName);
+            collectionRoot.getChildren().add(new TreeItem<>(colFile));
+        }
+        invisibleRoot.getChildren().add(collectionRoot);
+
         TreeItem<File> pinnedRoot = new TreeItem<>(PINNED_SECTION);
         pinnedRoot.setExpanded(true);
         for (File pin : pinnedFolders) {
@@ -176,7 +169,6 @@ public class FolderNav extends VBox {
         }
         invisibleRoot.getChildren().add(pinnedRoot);
 
-        // 3. Drives
         TreeItem<File> drivesRoot = new TreeItem<>(DRIVES_SECTION);
         drivesRoot.setExpanded(true);
         File[] roots = File.listRoots();
@@ -197,34 +189,22 @@ public class FolderNav extends VBox {
             private boolean isFirstTimeLeaf = true;
 
             {
-                // Add dummy node to enable expansion if it is a directory
-                if (file.isDirectory()) {
-                    super.getChildren().add(new TreeItem<>());
-                }
-
-                // Async expansion logic
+                if (file.isDirectory()) super.getChildren().add(new TreeItem<>());
                 expandedProperty().addListener((obs, wasCollapsed, isExpanded) -> {
                     if (isExpanded && isFirstTimeChildren) {
                         isFirstTimeChildren = false;
-
                         Task<List<TreeItem<File>>> task = new Task<>() {
                             @Override
                             protected List<TreeItem<File>> call() {
-                                if (file != null && file.isDirectory()) {
+                                if (file.isDirectory()) {
                                     File[] files = file.listFiles(File::isDirectory);
-                                    if (files != null) {
-                                        return Arrays.stream(files)
-                                                .map(FolderNav.this::createNode)
-                                                .collect(Collectors.toList());
-                                    }
+                                    if (files != null)
+                                        return Arrays.stream(files).map(FolderNav.this::createNode).collect(Collectors.toList());
                                 }
                                 return new ArrayList<>();
                             }
                         };
-
                         task.setOnSucceeded(e -> super.getChildren().setAll(task.getValue()));
-                        task.setOnFailed(e -> super.getChildren().clear()); // Clear dummy on failure
-
                         new Thread(task).start();
                     }
                 });
@@ -241,39 +221,16 @@ public class FolderNav extends VBox {
         };
     }
 
-    private boolean findAndSelectRecursive(TreeItem<File> parent, File target) {
-        parent.setExpanded(true);
-        for (TreeItem<File> child : parent.getChildren()) {
-            if (child.getValue().equals(target)) {
-                selectItem(child);
-                return true;
-            }
-            if (isParentOf(child.getValue(), target)) {
-                if (findAndSelectRecursive(child, target)) return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isParentOf(File parent, File target) {
-        return target.getAbsolutePath().startsWith(parent.getAbsolutePath() + File.separator);
-    }
-
-    private void selectItem(TreeItem<File> item) {
-        treeView.getSelectionModel().select(item);
-        int row = treeView.getRow(item);
-        if (row >= 0) treeView.scrollTo(row);
-    }
-
-    // ==================================================================================
-    // INNER CLASSES
-    // ==================================================================================
+    // --- Cell Factory & Interaction ---
 
     private class FolderTreeCell extends TreeCell<File> {
         public FolderTreeCell() {
             setOnDragOver(event -> {
-                if (getItem() != null && getItem().isDirectory() && event.getDragboard().hasFiles()) {
-                    event.acceptTransferModes(TransferMode.MOVE);
+                if (getItem() == null) return;
+                boolean isCollection = getItem().getPath().startsWith("::COL::");
+                boolean isDirectory = getItem().isDirectory() && !isCollection && !getItem().getPath().startsWith("::");
+                if ((isCollection || isDirectory) && event.getDragboard().hasFiles()) {
+                    event.acceptTransferModes(TransferMode.COPY_OR_MOVE);
                 }
                 event.consume();
             });
@@ -281,17 +238,19 @@ public class FolderNav extends VBox {
             setOnDragDropped(event -> {
                 Dragboard db = event.getDragboard();
                 if (db.hasFiles() && getItem() != null) {
-                    boolean success = true;
-                    for (File source : db.getFiles()) {
-                        File target = new File(getItem(), source.getName());
-                        if (source.renameTo(target)) {
-                            System.out.println("Moved " + source.getName());
-                        } else {
-                            success = false;
+                    boolean success = false;
+                    if (getItem().getPath().startsWith("::COL::")) {
+                        String colName = getItem().getName();
+                        listener.onAddFilesToCollection(colName, db.getFiles());
+                        success = true;
+                    } else if (getItem().isDirectory()) {
+                        for (File source : db.getFiles()) {
+                            File target = new File(getItem(), source.getName());
+                            if (source.renameTo(target)) success = true;
                         }
+                        if (success) listener.onFilesMoved();
                     }
                     event.setDropCompleted(success);
-                    if (success && listener != null) listener.onFilesMoved();
                     event.consume();
                 }
             });
@@ -302,64 +261,95 @@ public class FolderNav extends VBox {
             super.updateItem(item, empty);
             getStyleClass().remove("nav-tree-header");
             setStyle("");
+            setContextMenu(null);
 
             if (empty || item == null) {
                 setText(null);
                 setGraphic(null);
-                setContextMenu(null);
                 return;
             }
 
-            boolean isStarredHeader = item.equals(STARRED_SECTION);
-            boolean isPinnedHeader = item.equals(PINNED_SECTION);
-            boolean isDrivesHeader = item.equals(DRIVES_SECTION);
-            TreeItem<File> parent = getTreeItem().getParent();
-            boolean isInsidePinnedSection = parent != null && PINNED_SECTION.equals(parent.getValue());
-
-            if (isStarredHeader) {
+            if (item.equals(STARRED_SECTION)) {
                 setText("Starred");
-                FontIcon starIcon = new FontIcon(FontAwesome.STAR);
-                starIcon.setStyle("-fx-icon-color: #FFD700;");
-                setGraphic(starIcon);
+                setGraphic(createIcon(FontAwesome.STAR, "#FFD700"));
                 getStyleClass().add("nav-tree-header");
-            } else if (isPinnedHeader) {
-                setText("PINNED");
-                setGraphic(new FontIcon(FontAwesome.THUMB_TACK));
-                getStyleClass().add("nav-tree-header");
-            } else if (isDrivesHeader) {
-                setText("THIS PC");
-                setGraphic(new FontIcon(FontAwesome.DESKTOP));
-                getStyleClass().add("nav-tree-header");
-            } else {
-                setText(item.getName().isEmpty() ? item.toString() : item.getName());
-                FontIcon icon = isInsidePinnedSection
-                        ? new FontIcon(FontAwesome.THUMB_TACK)
-                        : new FontIcon(FontAwesome.FOLDER_O);
-                if (isInsidePinnedSection) icon.setStyle("-fx-icon-color: #777;");
-                setGraphic(icon);
-
-                ContextMenu cm = new ContextMenu();
-                MenuItem open = new MenuItem("Open in Explorer");
-                open.setOnAction(e -> {
-                    try { java.awt.Desktop.getDesktop().open(item); } catch (Exception ex) {}
-                });
-                cm.getItems().add(open);
-
-                if (listener != null) {
-                    if (isInsidePinnedSection) {
-                        MenuItem unpin = new MenuItem("Unpin Folder");
-                        unpin.setOnAction(e -> listener.onUnpinFolder(item));
-                        cm.getItems().add(unpin);
-                    } else {
-                        if (!pinnedFolders.contains(item)) {
-                            MenuItem pin = new MenuItem("Pin Folder");
-                            pin.setOnAction(e -> listener.onPinFolder(item));
-                            cm.getItems().add(pin);
-                        }
-                    }
-                }
-                setContextMenu(cm);
+                return;
             }
+
+            if (item.equals(COLLECTIONS_SECTION)) {
+                setText("COLLECTIONS");
+                setGraphic(createIcon(FontAwesome.LIST_ALT, null));
+                getStyleClass().add("nav-tree-header");
+                ContextMenu cm = new ContextMenu();
+                MenuItem createItem = new MenuItem("Create New Collection");
+                createItem.setOnAction(e -> showCreateCollectionDialog());
+                cm.getItems().add(createItem);
+                setContextMenu(cm);
+                return;
+            }
+
+            if (item.equals(PINNED_SECTION)) {
+                setText("PINNED");
+                setGraphic(createIcon(FontAwesome.THUMB_TACK, null));
+                getStyleClass().add("nav-tree-header");
+                return;
+            }
+
+            if (item.equals(DRIVES_SECTION)) {
+                setText("THIS PC");
+                setGraphic(createIcon(FontAwesome.DESKTOP, null));
+                getStyleClass().add("nav-tree-header");
+                return;
+            }
+
+            if (item.getPath().startsWith("::COL::")) {
+                setText(item.getName());
+                setGraphic(createIcon(FontAwesome.BOOKMARK, "#4da6ff"));
+                ContextMenu cm = new ContextMenu();
+                MenuItem delItem = new MenuItem("Delete Collection");
+                delItem.setOnAction(e -> listener.onDeleteCollection(item.getName()));
+                cm.getItems().add(delItem);
+                setContextMenu(cm);
+                return;
+            }
+
+            TreeItem<File> parent = getTreeItem().getParent();
+            boolean isPinned = parent != null && PINNED_SECTION.equals(parent.getValue());
+            setText(item.getName().isEmpty() ? item.toString() : item.getName());
+            FontIcon icon = isPinned ? createIcon(FontAwesome.THUMB_TACK, "#777") : createIcon(FontAwesome.FOLDER_O, null);
+            setGraphic(icon);
+
+            ContextMenu cm = new ContextMenu();
+            if (isPinned) {
+                MenuItem unpin = new MenuItem("Unpin Folder");
+                unpin.setOnAction(e -> listener.onUnpinFolder(item));
+                cm.getItems().add(unpin);
+            } else {
+                MenuItem pin = new MenuItem("Pin Folder");
+                pin.setOnAction(e -> listener.onPinFolder(item));
+                cm.getItems().add(pin);
+            }
+            setContextMenu(cm);
         }
+    }
+
+    // --- Helper Methods ---
+
+    private void showCreateCollectionDialog() {
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.setTitle("New Collection");
+        dialog.setHeaderText("Create a new Virtual Collection");
+        dialog.setContentText("Name:");
+        dialog.getDialogPane().getStyleClass().add("my-dialog");
+        Optional<String> result = dialog.showAndWait();
+        result.ifPresent(name -> {
+            if (!name.isBlank()) listener.onCreateCollection(name);
+        });
+    }
+
+    private FontIcon createIcon(FontAwesome iconCode, String colorHex) {
+        FontIcon icon = new FontIcon(iconCode);
+        if (colorHex != null) icon.setStyle("-fx-icon-color: " + colorHex + ";");
+        return icon;
     }
 }

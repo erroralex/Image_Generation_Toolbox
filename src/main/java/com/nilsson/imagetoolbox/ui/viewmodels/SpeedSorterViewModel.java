@@ -2,7 +2,6 @@ package com.nilsson.imagetoolbox.ui.viewmodels;
 
 import com.nilsson.imagetoolbox.data.UserDataManager;
 import de.saxsys.mvvmfx.ViewModel;
-import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
