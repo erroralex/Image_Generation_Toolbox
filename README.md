@@ -84,7 +84,7 @@ The application is built on a strict **MVVM (Model-View-ViewModel)** architectur
 
 ## 🚀 Getting Started
 
-[![Download Portable Zip](https://img.shields.io/badge/Download-Portable_Zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/erroralex/metadata-viewer/releases/latest)
+[![Download Portable Zip](https://img.shields.io/badge/Download-Portable_Zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/erroralex/image_generation_toolbox/releases/latest)
 
 
 ---
