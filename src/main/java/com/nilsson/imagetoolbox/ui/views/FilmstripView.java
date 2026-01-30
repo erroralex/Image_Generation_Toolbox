@@ -1,8 +1,8 @@
 package com.nilsson.imagetoolbox.ui.views;
 
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
 import javafx.embed.swing.SwingFXUtils;
-import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -10,9 +10,9 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
-
 import javax.imageio.ImageIO;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
@@ -23,32 +23,54 @@ public class FilmstripView extends ScrollPane {
     private final ExecutorService imageLoaderPool;
     private Consumer<Integer> onSelectionChanged;
 
+    // Layout Constants
+    private static final double FRAME_SIZE = 80;
+    private static final double IMAGE_SIZE = 72; // Smaller than frame to reveal highlight border
+    private static final double GAP_SIZE = 15;
+    private static final double TOTAL_ITEM_WIDTH = FRAME_SIZE + GAP_SIZE;
+
+    // Track state
+    private int selectedIndex = 0;
+    private final List<StackPane> frameNodes = new ArrayList<>();
+
     public FilmstripView(ExecutorService imageLoaderPool) {
         this.imageLoaderPool = imageLoaderPool;
 
-        this.filmStripBox = new HBox(15);
+        this.filmStripBox = new HBox(GAP_SIZE);
         this.filmStripBox.setAlignment(Pos.CENTER_LEFT);
-        this.filmStripBox.setPadding(new Insets(10));
 
-        this.filmStripBox.setMinWidth(0);
-        this.filmStripBox.setPrefWidth(Region.USE_COMPUTED_SIZE);
-        this.filmStripBox.setMaxWidth(Double.MAX_VALUE);
+        // --- CAROUSEL LOGIC ---
+        // Dynamically calculate padding so the first/last items can be centered.
+        // Padding = (ViewportWidth / 2) - (ItemWidth / 2)
+        this.filmStripBox.paddingProperty().bind(Bindings.createObjectBinding(() -> {
+            double viewportW = this.getViewportBounds().getWidth();
+            if (viewportW <= 0) return new Insets(10, 0, 10, 0); // Fallback
 
-        StackPane stripWrapper = new StackPane(filmStripBox);
-        stripWrapper.setAlignment(Pos.CENTER_LEFT);
-        stripWrapper.minWidthProperty().bind(this.widthProperty());
+            double halfWidth = viewportW / 2.0;
+            double halfItem = FRAME_SIZE / 2.0;
+            double padding = Math.max(0, halfWidth - halfItem);
 
-        this.setContent(stripWrapper);
+            return new Insets(10, padding, 10, padding);
+        }, this.viewportBoundsProperty()));
+
+        this.setContent(filmStripBox);
+
+        // ScrollPane Settings
         this.setFitToHeight(true);
-        this.setFitToWidth(true);
+        this.setFitToWidth(false); // Essential for horizontal growth
         this.setVbarPolicy(ScrollBarPolicy.NEVER);
-        this.setHbarPolicy(ScrollBarPolicy.AS_NEEDED);
+        this.setHbarPolicy(ScrollBarPolicy.NEVER); // Hide bar for clean look
         this.setPannable(true);
+
         this.setMinHeight(140);
         this.setPrefHeight(140);
 
-        HBox.setHgrow(this, Priority.ALWAYS);
-        VBox.setVgrow(this, Priority.NEVER);
+        // Re-center when window resizes
+        this.viewportBoundsProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal.getWidth() > 0) {
+                Platform.runLater(this::scrollToCurrentIndex);
+            }
+        });
     }
 
     public void setOnSelectionChanged(Consumer<Integer> callback) {
@@ -57,22 +79,25 @@ public class FilmstripView extends ScrollPane {
 
     public void setFiles(List<File> files) {
         filmStripBox.getChildren().clear();
-        if (files == null) return;
+        frameNodes.clear();
+
+        if (files == null || files.isEmpty()) return;
 
         for (int i = 0; i < files.size(); i++) {
             File f = files.get(i);
             int idx = i;
 
             ImageView thumb = new ImageView();
-            thumb.setFitHeight(80);
-            thumb.setFitWidth(80);
+            thumb.setFitHeight(IMAGE_SIZE); // 72px
+            thumb.setFitWidth(IMAGE_SIZE);  // 72px
             thumb.setPreserveRatio(true);
 
+            // Frame is 80px. Image is 72px.
+            // This leaves 4px of space on all sides for the CSS border/background to show.
             StackPane frame = new StackPane(thumb);
             frame.getStyleClass().add("film-frame");
-            frame.getProperties().put("index", idx);
-            // Default min size for frame so it appears even while loading
-            frame.setMinSize(80, 80);
+            frame.setMinSize(FRAME_SIZE, FRAME_SIZE);
+            frame.setMaxSize(FRAME_SIZE, FRAME_SIZE);
 
             frame.setOnMouseClicked(e -> {
                 if (onSelectionChanged != null) onSelectionChanged.accept(idx);
@@ -85,43 +110,71 @@ public class FilmstripView extends ScrollPane {
             });
 
             filmStripBox.getChildren().add(frame);
+            frameNodes.add(frame);
         }
+
+        // Initial selection
+        setSelectedIndex(0);
     }
 
     public void setSelectedIndex(int index) {
-        if (filmStripBox.getChildren().isEmpty()) return;
+        if (frameNodes.isEmpty()) return;
 
-        for (Node node : filmStripBox.getChildren()) {
-            int fileIndex = (int) node.getProperties().get("index");
-            if (fileIndex == index) {
-                if (!node.getStyleClass().contains("film-frame-selected")) {
-                    node.getStyleClass().add("film-frame-selected");
+        // Clamp index
+        if (index < 0) index = 0;
+        if (index >= frameNodes.size()) index = frameNodes.size() - 1;
+
+        this.selectedIndex = index;
+
+        // 1. Update Styles
+        for (int i = 0; i < frameNodes.size(); i++) {
+            Node n = frameNodes.get(i);
+            if (i == index) {
+                if (!n.getStyleClass().contains("film-frame-selected")) {
+                    n.getStyleClass().add("film-frame-selected");
                 }
-                centerNode(node);
             } else {
-                node.getStyleClass().remove("film-frame-selected");
+                n.getStyleClass().remove("film-frame-selected");
             }
         }
+
+        // 2. Scroll to Center (Async to allow layout pass)
+        Platform.runLater(this::scrollToCurrentIndex);
     }
 
-    private void centerNode(Node node) {
-        Bounds nodeBounds = node.getBoundsInParent();
-        double nodeCenterX = (nodeBounds.getMinX() + nodeBounds.getMaxX()) / 2;
-        double contentWidth = filmStripBox.getBoundsInLocal().getWidth();
-        double viewportWidth = this.getViewportBounds().getWidth();
+    private void scrollToCurrentIndex() {
+        if (frameNodes.isEmpty()) return;
 
-        if (contentWidth <= viewportWidth) {
-            this.setHvalue(0.5);
+        double contentWidth = filmStripBox.getWidth();
+        double viewportWidth = this.getViewportBounds().getWidth();
+        double maxScroll = contentWidth - viewportWidth;
+
+        if (maxScroll <= 0) {
+            this.setHvalue(0); // If content fits, start at 0 (padding handles centering)
             return;
         }
 
-        double targetX = nodeCenterX - (viewportWidth / 2);
-        double maxScroll = contentWidth - viewportWidth;
-        double hValue = targetX / maxScroll;
+        // Calculate exact position
+        double leftPadding = ((Insets) filmStripBox.getPadding()).getLeft();
+
+        // Start position of the item in the box
+        double itemStart = leftPadding + (selectedIndex * TOTAL_ITEM_WIDTH);
+
+        // Center position of the item
+        double itemCenter = itemStart + (FRAME_SIZE / 2.0);
+
+        // Center of the viewport
+        double viewportCenter = viewportWidth / 2.0;
+
+        // Calculate offset required
+        double targetOffset = itemCenter - viewportCenter;
+
+        // Convert to 0.0 - 1.0 range
+        double hValue = targetOffset / maxScroll;
+
         this.setHvalue(Math.max(0, Math.min(1, hValue)));
     }
 
-    // Duplicate robust loader (or move to a static Utility class)
     private Image loadRobustImage(File file, double width) {
         try {
             Image img = new Image(file.toURI().toString(), width, 0, true, true, false);

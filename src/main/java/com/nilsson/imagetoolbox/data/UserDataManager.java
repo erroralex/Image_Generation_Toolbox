@@ -1,233 +1,391 @@
 package com.nilsson.imagetoolbox.data;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-
 import java.io.File;
-import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
- * Manages all persistent user data including starred images, tags, settings, custom lists,
- * and pinned folders. Data is persisted to a JSON file using Jackson.
- * <p>
- * This version uses a DEBOUNCED save mechanism to prevent UI freezes during high-frequency
- * updates (like tagging or auto-indexing).
+ Central manager for all persistent user data, backed by SQLite.
+
+ <p>This class handles storage and retrieval of starred files, tags, pinned folders,
+ application settings, and cached metadata. All data is persisted immediately
+ to the local database, ensuring durability and low memory overhead.</p>
+
+ <p>Thread safety is managed via the underlying DatabaseService connection pooling (WAL mode)
+ and synchronized blocks where necessary to prevent logical race conditions.</p>
  */
 public class UserDataManager {
 
-    private static final File DATA_FILE = new File("data/userdata.json");
-    private static final UserDataManager INSTANCE = new UserDataManager();
-    private final ObjectMapper mapper;
-    private PersistentData data;
+    // ==================================================================================
+    // STATE
+    // ==================================================================================
 
-    // Persistence Debouncing
-    private final ScheduledExecutorService saveScheduler = Executors.newSingleThreadScheduledExecutor();
-    private ScheduledFuture<?> pendingSave;
+    private final DatabaseService db;
+    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final Lock readLock = rwLock.readLock();
+    private final Lock writeLock = rwLock.writeLock();
 
-    private UserDataManager() {
-        mapper = new ObjectMapper();
-        mapper.enable(SerializationFeature.INDENT_OUTPUT);
-        load();
+    // ==================================================================================
+    // CONSTRUCTION
+    // ==================================================================================
 
-        // Ensure save on exit to capture any pending writes
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (pendingSave != null && !pendingSave.isDone()) {
-                saveImmediate();
-            }
-        }));
-    }
-
-    public static UserDataManager getInstance() {
-        return INSTANCE;
+    public UserDataManager() {
+        this.db = new DatabaseService();
     }
 
     // ==================================================================================
     // PINNED FOLDERS
     // ==================================================================================
 
-    public synchronized List<File> getPinnedFolders() {
-        return data.pinnedFolders.stream()
-                .map(File::new)
-                .filter(File::exists)
-                .collect(Collectors.toList());
-    }
+    public List<File> getPinnedFolders() {
+        readLock.lock();
+        try {
+            List<File> result = new ArrayList<>();
+            String sql = "SELECT path FROM pinned_folders ORDER BY path ASC";
 
-    public synchronized void addPinnedFolder(File folder) {
-        if (folder != null && folder.isDirectory()) {
-            String path = folder.getAbsolutePath();
-            if (!data.pinnedFolders.contains(path)) {
-                data.pinnedFolders.add(path);
-                scheduleSave();
+            try (Connection conn = db.connect();
+                 Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sql)) {
+
+                while (rs.next()) {
+                    File f = new File(rs.getString("path"));
+                    if (f.exists()) result.add(f);
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
             }
+            return result;
+        } finally {
+            readLock.unlock();
         }
     }
 
-    public synchronized void removePinnedFolder(File folder) {
-        if (folder != null) {
-            data.pinnedFolders.remove(folder.getAbsolutePath());
-            scheduleSave();
+    public void addPinnedFolder(File folder) {
+        if (folder == null || !folder.isDirectory()) return;
+        writeLock.lock();
+        try {
+            String sql = "INSERT OR IGNORE INTO pinned_folders(path) VALUES(?)";
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, folder.getAbsolutePath());
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        } finally {
+            writeLock.unlock();
         }
     }
 
-    public synchronized boolean isPinned(File folder) {
-        return folder != null && data.pinnedFolders.contains(folder.getAbsolutePath());
+    public void removePinnedFolder(File folder) {
+        if (folder == null) return;
+        writeLock.lock();
+        try {
+            String sql = "DELETE FROM pinned_folders WHERE path = ?";
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, folder.getAbsolutePath());
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    public boolean isPinned(File folder) {
+        if (folder == null) return false;
+        readLock.lock();
+        try {
+            String sql = "SELECT 1 FROM pinned_folders WHERE path = ?";
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, folder.getAbsolutePath());
+                ResultSet rs = pstmt.executeQuery();
+                return rs.next();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            return false;
+        } finally {
+            readLock.unlock();
+        }
     }
 
     // ==================================================================================
     // STARS / FAVORITES
     // ==================================================================================
 
-    public synchronized void addStar(File file) {
-        if (file != null && data.stars.add(file.getAbsolutePath())) {
-            scheduleSave();
+    public void addStar(File file) {
+        if (file == null) return;
+        writeLock.lock();
+        try {
+            int imageId = db.getOrCreateImageId(file.getAbsolutePath());
+            String sql = "UPDATE images SET is_starred = 1 WHERE id = ?";
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setInt(1, imageId);
+                pstmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            writeLock.unlock();
         }
     }
 
-    public synchronized void removeStar(File file) {
-        if (file != null && data.stars.remove(file.getAbsolutePath())) {
-            scheduleSave();
+    public void removeStar(File file) {
+        if (file == null) return;
+        writeLock.lock();
+        try {
+            String sql = "UPDATE images SET is_starred = 0 WHERE file_path = ?";
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, file.getAbsolutePath());
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        } finally {
+            writeLock.unlock();
         }
     }
 
-    public synchronized boolean isStarred(File file) {
-        return file != null && data.stars.contains(file.getAbsolutePath());
+    public boolean isStarred(File file) {
+        if (file == null) return false;
+        readLock.lock();
+        try {
+            String sql = "SELECT is_starred FROM images WHERE file_path = ?";
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, file.getAbsolutePath());
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) return rs.getBoolean("is_starred");
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            return false;
+        } finally {
+            readLock.unlock();
+        }
     }
 
-    public synchronized void toggleStar(File file) {
-        if (isStarred(file)) removeStar(file);
-        else addStar(file);
+    public void toggleStar(File file) {
+        writeLock.lock();
+        try {
+            if (isStarred(file)) removeStar(file);
+            else addStar(file);
+        } finally {
+            writeLock.unlock();
+        }
     }
 
-    public synchronized List<File> getStarredFilesList() {
-        return data.stars.stream()
-                .map(File::new)
-                .filter(File::exists)
-                .collect(Collectors.toList());
+    public List<File> getStarredFilesList() {
+        readLock.lock();
+        try {
+            List<File> result = new ArrayList<>();
+            String sql = "SELECT file_path FROM images WHERE is_starred = 1";
+
+            try (Connection conn = db.connect();
+                 Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sql)) {
+
+                while (rs.next()) {
+                    File f = new File(rs.getString("file_path"));
+                    if (f.exists()) result.add(f);
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            return result;
+        } finally {
+            readLock.unlock();
+        }
     }
 
     // ==================================================================================
     // TAGS
     // ==================================================================================
 
-    public synchronized void addTag(File file, String tag) {
+    public void addTag(File file, String tag) {
         if (file == null || tag == null || tag.isBlank()) return;
-        data.fileTags.computeIfAbsent(file.getAbsolutePath(), k -> new HashSet<>()).add(tag.trim());
-        scheduleSave();
-    }
+        writeLock.lock();
+        try {
+            int imageId = db.getOrCreateImageId(file.getAbsolutePath());
+            String sql = "INSERT OR IGNORE INTO tags(image_id, tag_text) VALUES(?, ?)";
 
-    public synchronized void removeTag(File file, String tag) {
-        if (file == null || tag == null) return;
-        Set<String> tags = data.fileTags.get(file.getAbsolutePath());
-        if (tags != null && tags.remove(tag)) {
-            if (tags.isEmpty()) data.fileTags.remove(file.getAbsolutePath());
-            scheduleSave();
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setInt(1, imageId);
+                pstmt.setString(2, tag.trim());
+                pstmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            writeLock.unlock();
         }
     }
 
-    public synchronized Set<String> getTags(File file) {
-        return file == null ? Collections.emptySet() :
-                new HashSet<>(data.fileTags.getOrDefault(file.getAbsolutePath(), Collections.emptySet()));
-    }
+    public void removeTag(File file, String tag) {
+        if (file == null || tag == null) return;
+        writeLock.lock();
+        try {
+            String sql = """
+                        DELETE FROM tags 
+                        WHERE tag_text = ? 
+                        AND image_id = (SELECT id FROM images WHERE file_path = ?)
+                    """;
 
-    // ==================================================================================
-    // SEARCH ENGINE (Expanded Scope)
-    // ==================================================================================
-
-    public synchronized List<File> findFiles(String query) {
-        if (query == null || query.isBlank()) return new ArrayList<>();
-        String lowerQuery = query.toLowerCase();
-
-        Set<String> matchedPaths = new HashSet<>();
-
-        // 1. Search Tags
-        data.fileTags.forEach((path, tags) -> {
-            if (tags.stream().anyMatch(t -> t.toLowerCase().contains(lowerQuery))) {
-                matchedPaths.add(path);
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, tag);
+                pstmt.setString(2, file.getAbsolutePath());
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
             }
-        });
-
-        // 2. Search Cached Metadata (Prompt, Model, etc.)
-        data.metadataCache.forEach((path, meta) -> {
-            boolean metaMatch = meta.values().stream()
-                    .anyMatch(val -> val != null && val.toLowerCase().contains(lowerQuery));
-            if (metaMatch) matchedPaths.add(path);
-        });
-
-        return matchedPaths.stream()
-                .map(File::new)
-                .filter(File::exists)
-                .collect(Collectors.toList());
+        } finally {
+            writeLock.unlock();
+        }
     }
 
-    /**
-     * Compatibility method for existing code.
-     */
+    public Set<String> getTags(File file) {
+        readLock.lock();
+        try {
+            Set<String> tags = new HashSet<>();
+            if (file == null) return tags;
+
+            String sql = """
+                        SELECT tag_text FROM tags 
+                        JOIN images ON tags.image_id = images.id 
+                        WHERE images.file_path = ?
+                    """;
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, file.getAbsolutePath());
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    tags.add(rs.getString("tag_text"));
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            return tags;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    // ==================================================================================
+    // SEARCH
+    // ==================================================================================
+
+    public List<File> findFiles(String query) {
+        if (query == null || query.isBlank()) return new ArrayList<>();
+        readLock.lock();
+        try {
+            Set<File> results = new HashSet<>();
+            String likeQuery = "%" + query.trim() + "%";
+
+            // 1. Search Tags
+            String tagSql = """
+                        SELECT file_path FROM images i
+                        JOIN tags t ON t.image_id = i.id
+                        WHERE t.tag_text LIKE ?
+                    """;
+
+            // 2. Search Metadata
+            String metaSql = """
+                        SELECT file_path FROM images i
+                        JOIN metadata m ON m.image_id = i.id
+                        WHERE m.value_text LIKE ?
+                    """;
+
+            try (Connection conn = db.connect()) {
+                // Check tags
+                try (PreparedStatement pstmt = conn.prepareStatement(tagSql)) {
+                    pstmt.setString(1, likeQuery);
+                    ResultSet rs = pstmt.executeQuery();
+                    while (rs.next()) results.add(new File(rs.getString("file_path")));
+                }
+                // Check metadata
+                try (PreparedStatement pstmt = conn.prepareStatement(metaSql)) {
+                    pstmt.setString(1, likeQuery);
+                    ResultSet rs = pstmt.executeQuery();
+                    while (rs.next()) results.add(new File(rs.getString("file_path")));
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+
+            return results.stream().filter(File::exists).collect(Collectors.toList());
+        } finally {
+            readLock.unlock();
+        }
+    }
+
     public List<File> findFilesByTag(String query) {
         return findFiles(query);
     }
 
     // ==================================================================================
-    // CUSTOM LISTS
+    // APPLICATION SETTINGS (Key-Value Store)
     // ==================================================================================
 
-    public synchronized Set<String> getCustomListNames() {
-        return new HashSet<>(data.customLists.keySet());
-    }
-
-    public synchronized void createList(String name) {
-        if (!data.customLists.containsKey(name)) {
-            data.customLists.put(name, new ArrayList<>());
-            scheduleSave();
+    public String getSetting(String key, String defaultValue) {
+        readLock.lock();
+        try {
+            String sql = "SELECT value FROM settings WHERE key = ?";
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, key);
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) return rs.getString("value");
+            } catch (SQLException e) {
+                // Table might not exist yet if not added to DatabaseService, fail gracefully
+            }
+            return defaultValue;
+        } finally {
+            readLock.unlock();
         }
     }
 
-    public synchronized void deleteList(String name) {
-        if (data.customLists.remove(name) != null) {
-            scheduleSave();
+    public void setSetting(String key, String value) {
+        writeLock.lock();
+        try {
+            String sql = "INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)";
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, key);
+                pstmt.setString(2, value);
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        } finally {
+            writeLock.unlock();
         }
     }
 
-    public synchronized void addFileToList(String listName, File file) {
-        List<String> list = data.customLists.get(listName);
-        if (list != null && !list.contains(file.getAbsolutePath())) {
-            list.add(file.getAbsolutePath());
-            scheduleSave();
-        }
-    }
-
-    public synchronized List<File> getFilesFromList(String listName) {
-        List<String> paths = data.customLists.get(listName);
-        if (paths == null) return new ArrayList<>();
-        return paths.stream()
-                .map(File::new)
-                .filter(File::exists)
-                .collect(Collectors.toList());
-    }
-
-    // ==================================================================================
-    // APP SETTINGS
-    // ==================================================================================
-
-    /**
-     * Retrieves a persistent setting string.
-     * @param key The setting key
-     * @param defaultValue Value to return if key is missing
-     * @return The setting value or defaultValue
-     */
-    public synchronized String getSetting(String key, String defaultValue) {
-        return data.settings.getOrDefault(key, defaultValue);
-    }
-
-    public synchronized void setSetting(String key, String value) {
-        data.settings.put(key, value);
-        scheduleSave();
-    }
-
-    public synchronized File getLastFolder() {
-        String path = data.settings.get("last_folder");
+    public File getLastFolder() {
+        String path = getSetting("last_folder", null);
         if (path != null) {
             File f = new File(path);
             if (f.exists() && f.isDirectory()) return f;
@@ -235,10 +393,9 @@ public class UserDataManager {
         return null;
     }
 
-    public synchronized void setLastFolder(File folder) {
+    public void setLastFolder(File folder) {
         if (folder != null && folder.isDirectory()) {
-            data.settings.put("last_folder", folder.getAbsolutePath());
-            scheduleSave();
+            setSetting("last_folder", folder.getAbsolutePath());
         }
     }
 
@@ -246,76 +403,85 @@ public class UserDataManager {
     // METADATA CACHE
     // ==================================================================================
 
-    public synchronized boolean hasCachedMetadata(File file) {
-        return file != null && data.metadataCache.containsKey(file.getAbsolutePath());
-    }
-
-    public synchronized void cacheMetadata(File file, Map<String, String> meta) {
-        if (file != null && meta != null && !meta.isEmpty()) {
-            if (!data.metadataCache.containsKey(file.getAbsolutePath())) {
-                data.metadataCache.put(file.getAbsolutePath(), meta);
-                scheduleSave();
-            }
-        }
-    }
-
-    public synchronized Map<String, String> getCachedMetadata(File file) {
-        return file == null ? null : data.metadataCache.get(file.getAbsolutePath());
-    }
-
-    // ==================================================================================
-    // PERSISTENCE LOGIC
-    // ==================================================================================
-
-    private void load() {
-        if (DATA_FILE.exists()) {
-            try {
-                data = mapper.readValue(DATA_FILE, PersistentData.class);
-            } catch (IOException e) {
-                System.err.println("Failed to load user data: " + e.getMessage());
-                data = new PersistentData();
-            }
-        } else {
-            data = new PersistentData();
-        }
-        ensureDataIntegrity();
-    }
-
-    private synchronized void scheduleSave() {
-        if (pendingSave != null && !pendingSave.isDone()) {
-            pendingSave.cancel(false);
-        }
-        // Wait 3 seconds before writing to disk
-        pendingSave = saveScheduler.schedule(this::saveImmediate, 3, TimeUnit.SECONDS);
-    }
-
-    private synchronized void saveImmediate() {
+    public boolean hasCachedMetadata(File file) {
+        if (file == null) return false;
+        readLock.lock();
         try {
-            if (!DATA_FILE.getParentFile().exists()) {
-                DATA_FILE.getParentFile().mkdirs();
+            // If we have at least one metadata entry for this file
+            String sql = """
+                        SELECT 1 FROM metadata m
+                        JOIN images i ON i.id = m.image_id
+                        WHERE i.file_path = ? LIMIT 1
+                    """;
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, file.getAbsolutePath());
+                return pstmt.executeQuery().next();
+            } catch (SQLException e) {
+                e.printStackTrace();
             }
-            mapper.writeValue(DATA_FILE, data);
-            System.out.println("User data saved to disk.");
-        } catch (IOException e) {
-            System.err.println("Failed to save user data: " + e.getMessage());
+            return false;
+        } finally {
+            readLock.unlock();
         }
     }
 
-    private void ensureDataIntegrity() {
-        if (data.stars == null) data.stars = new HashSet<>();
-        if (data.settings == null) data.settings = new HashMap<>();
-        if (data.customLists == null) data.customLists = new HashMap<>();
-        if (data.fileTags == null) data.fileTags = new ConcurrentHashMap<>();
-        if (data.metadataCache == null) data.metadataCache = new HashMap<>();
-        if (data.pinnedFolders == null) data.pinnedFolders = new ArrayList<>();
+    public void cacheMetadata(File file, Map<String, String> meta) {
+        if (file == null || meta == null || meta.isEmpty()) return;
+
+        writeLock.lock();
+        try {
+            int imageId = db.getOrCreateImageId(file.getAbsolutePath());
+            String insertSql = "INSERT OR REPLACE INTO metadata(image_id, key_text, value_text) VALUES(?, ?, ?)";
+
+            try (Connection conn = db.connect()) {
+                conn.setAutoCommit(false); // Batch insert
+                try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                    for (Map.Entry<String, String> entry : meta.entrySet()) {
+                        pstmt.setInt(1, imageId);
+                        pstmt.setString(2, entry.getKey());
+                        pstmt.setString(3, entry.getValue());
+                        pstmt.addBatch();
+                    }
+                    pstmt.executeBatch();
+                    conn.commit();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            writeLock.unlock();
+        }
     }
 
-    private static class PersistentData {
-        public Set<String> stars = new HashSet<>();
-        public Map<String, String> settings = new HashMap<>();
-        public Map<String, List<String>> customLists = new HashMap<>();
-        public Map<String, Set<String>> fileTags = new ConcurrentHashMap<>();
-        public Map<String, Map<String, String>> metadataCache = new HashMap<>();
-        public List<String> pinnedFolders = new ArrayList<>();
+    public Map<String, String> getCachedMetadata(File file) {
+        readLock.lock();
+        try {
+            Map<String, String> meta = new HashMap<>();
+            if (file == null) return meta;
+
+            String sql = """
+                        SELECT key_text, value_text FROM metadata m
+                        JOIN images i ON i.id = m.image_id
+                        WHERE i.file_path = ?
+                    """;
+
+            try (Connection conn = db.connect();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, file.getAbsolutePath());
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    meta.put(rs.getString("key_text"), rs.getString("value_text"));
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            return meta;
+        } finally {
+            readLock.unlock();
+        }
     }
 }

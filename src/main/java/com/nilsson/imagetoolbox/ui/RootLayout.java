@@ -1,6 +1,10 @@
 package com.nilsson.imagetoolbox.ui;
 
 import com.nilsson.imagetoolbox.data.UserDataManager;
+import com.nilsson.imagetoolbox.ui.components.CustomTitleBar;
+import com.nilsson.imagetoolbox.ui.components.SidebarMenu;
+import com.nilsson.imagetoolbox.ui.controllers.ImageBrowserController;
+import com.nilsson.imagetoolbox.ui.controllers.SpeedSorterController;
 import com.nilsson.imagetoolbox.ui.views.ImageBrowserView;
 import com.nilsson.imagetoolbox.ui.views.ScrubView;
 import com.nilsson.imagetoolbox.ui.views.SpeedSorterView;
@@ -10,17 +14,63 @@ import javafx.stage.Stage;
 
 import java.io.File;
 
+/**
+ * Root layout container for the application UI.
+ *
+ * <p>This class serves as the top-level layout manager, coordinating
+ * navigation and view switching between the major application views.
+ * All views and controllers are provided via dependency injection.</p>
+ */
 public class RootLayout extends BorderPane {
+
+    /* ============================================================
+       Core UI Components
+       ============================================================ */
 
     private final CustomTitleBar titleBar;
     private final SidebarMenu sidebar;
     private final StackPane contentArea;
 
-    private ImageBrowserView imageBrowserView;
-    private SpeedSorterView speedSorterView;
-    private ScrubView scrubView;
+    /* ============================================================
+       Application State
+       ============================================================ */
 
-    public RootLayout(Stage stage) {
+    private final UserDataManager dataManager;
+
+    /* ============================================================
+       Views
+       ============================================================ */
+
+    private final ImageBrowserView imageBrowserView;
+    private final SpeedSorterView speedSorterView;
+    private final ScrubView scrubView;
+
+    /* ============================================================
+       Controllers
+       ============================================================ */
+
+    private final ImageBrowserController browserController;
+    private final SpeedSorterController speedSorterController;
+
+    /* ============================================================
+       Construction
+       ============================================================ */
+
+    public RootLayout(Stage stage,
+                      ImageBrowserView imageBrowserView,
+                      UserDataManager dataManager,
+                      ImageBrowserController browserController,
+                      SpeedSorterController speedSorterController,
+                      SpeedSorterView speedSorterView,
+                      ScrubView scrubView) {
+
+        this.imageBrowserView = imageBrowserView;
+        this.dataManager = dataManager;
+        this.browserController = browserController;
+        this.speedSorterController = speedSorterController;
+        this.speedSorterView = speedSorterView;
+        this.scrubView = scrubView;
+
         this.sidebar = new SidebarMenu(this::switchView);
         this.setLeft(sidebar);
 
@@ -31,21 +81,23 @@ public class RootLayout extends BorderPane {
 
         this.contentArea = new StackPane();
         this.contentArea.setStyle("-fx-background-color: -app-bg-deepest;");
+        this.setCenter(contentArea);
 
-        this.imageBrowserView = new ImageBrowserView();
         this.imageBrowserView.setMinSize(0, 0);
         this.imageBrowserView.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
 
-        this.setCenter(contentArea);
-
-        File lastFolder = UserDataManager.getInstance().getLastFolder();
+        File lastFolder = dataManager.getLastFolder();
         if (lastFolder != null && lastFolder.exists()) {
-            imageBrowserView.loadFolder(lastFolder);
+            browserController.onFolderSelected(lastFolder);
             imageBrowserView.getFolderNav().selectPath(lastFolder);
         }
 
         switchView("VIEW_TREE");
     }
+
+    /* ============================================================
+       View Navigation
+       ============================================================ */
 
     private void switchView(String viewId) {
         sidebar.setActive(viewId);
@@ -53,20 +105,23 @@ public class RootLayout extends BorderPane {
 
         switch (viewId) {
             case "VIEW_TREE":
-                // Logic Fix: Restore the real folder if we were in favorites
-                imageBrowserView.restoreLastFolder();
+                File last = dataManager.getLastFolder();
+                if (last != null && last.exists()) {
+                    browserController.onFolderSelected(last);
+                }
                 contentArea.getChildren().add(imageBrowserView);
                 break;
+
             case "VIEW_SORTER":
-                if (speedSorterView == null) speedSorterView = new SpeedSorterView();
                 contentArea.getChildren().add(speedSorterView);
                 break;
+
             case "VIEW_SCRUB":
-                if (scrubView == null) scrubView = new ScrubView();
                 contentArea.getChildren().add(scrubView);
                 break;
+
             case "VIEW_FAVORITES":
-                imageBrowserView.loadCustomFileList(UserDataManager.getInstance().getStarredFilesList());
+                imageBrowserView.displayFiles(dataManager.getStarredFilesList());
                 imageBrowserView.setViewMode(ImageBrowserView.ViewMode.GALLERY);
                 contentArea.getChildren().add(imageBrowserView);
                 break;

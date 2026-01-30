@@ -8,9 +8,26 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Metadata extraction strategy for ComfyUI workflows.
+ *
+ * <p>This strategy traverses both UI and API-style ComfyUI graphs to extract
+ * generation metadata such as model, sampler, scheduler, steps, seed, CFG,
+ * prompts, and LoRA usage. It supports recursive graph traversal, passthrough
+ * nodes, output-driven inference, widget-based fallbacks, and prompt parsing.</p>
+ *
+ * <p>The implementation is resilient to partial graphs, inactive nodes,
+ * reroutes, and mixed workflow formats, favoring the most semantically
+ * relevant sampler and associated parameters.</p>
+ */
 public class ComfyUIStrategy implements MetadataStrategy {
 
-    private static final DecimalFormat DF = new DecimalFormat("#.##", new DecimalFormatSymbols(Locale.US));
+    /* ======================================================================
+       Constants
+       ====================================================================== */
+
+    private static final DecimalFormat DF =
+            new DecimalFormat("#.##", new DecimalFormatSymbols(Locale.US));
 
     private static final Set<String> VALID_EXTENSIONS = new HashSet<>(Arrays.asList(
             ".safetensors", ".ckpt", ".gguf", ".pt", ".pth", ".bin"
@@ -27,32 +44,45 @@ public class ComfyUIStrategy implements MetadataStrategy {
     ));
 
     private static final Set<String> IGNORED_MODEL_NODE_TYPES = new HashSet<>(Arrays.asList(
-            "preprocessor", "detailer", "output", "save image", "preview image", "save", "preview", "detector", "mask"
+            "preprocessor", "detailer", "output", "save image", "preview image",
+            "save", "preview", "detector", "mask"
     ));
 
     private static final Set<String> SAMPLER_KEYWORDS = new HashSet<>(Arrays.asList(
-            "euler", "heun", "dpm", "lms", "ddim", "uni_pc", "lcm", "multistep", "singlestep", "clownshark"
+            "euler", "heun", "dpm", "lms", "ddim", "uni_pc", "lcm",
+            "multistep", "singlestep", "clownshark"
     ));
 
     private static final Set<String> SCHEDULER_KEYWORDS = new HashSet<>(Arrays.asList(
-            "normal", "karras", "exponential", "sgm", "simple", "beta", "ddim", "standard", "linear", "uniform", "gpu", "polyexponential", "automatic"
+            "normal", "karras", "exponential", "sgm", "simple", "beta",
+            "ddim", "standard", "linear", "uniform", "gpu",
+            "polyexponential", "automatic"
     ));
 
     private static final Set<String> IGNORED_PROMPT_TEXTS = new HashSet<>(Arrays.asList(
             "fixed", "increment", "decrement", "randomize", "random", "reproduce",
             "enable", "disable", "on", "off", "center", "resize", "crop",
-            "Select Wildcard", "Full Cache", "Preserve", "Baked/Default", "auto", "bf16", "undefined", "null"
+            "Select Wildcard", "Full Cache", "Preserve", "Baked/Default",
+            "auto", "bf16", "undefined", "null"
     ));
 
     private static final Set<String> PASSTHROUGH_TYPES = new HashSet<>(Arrays.asList(
-            "reroute", "switch", "pipe", "bus", "node", "wifi", "set", "get", "any", "showtext", "pysssss", "stringreplace", "wildcard"
+            "reroute", "switch", "pipe", "bus", "node", "wifi",
+            "set", "get", "any", "showtext", "pysssss",
+            "stringreplace", "wildcard"
     ));
 
     private static final Set<String> OUTPUT_NODE_TYPES = new HashSet<>(Arrays.asList(
-            "save image", "preview image", "saveimage", "previewimage", "video save", "save", "preview", "image save"
+            "save image", "preview image", "saveimage", "previewimage",
+            "video save", "save", "preview", "image save"
     ));
 
-    private static final Pattern LORA_TAG_PATTERN = Pattern.compile("<lora:([^:>]+)(?::([^:>]+))?.*?>");
+    private static final Pattern LORA_TAG_PATTERN =
+            Pattern.compile("<lora:([^:>]+)(?::([^:>]+))?.*?>");
+
+    /* ======================================================================
+       Entry Point
+       ====================================================================== */
 
     @Override
     public void extract(String key, JsonNode value, JsonNode parentNode, Map<String, String> results) {
@@ -62,29 +92,31 @@ public class ComfyUIStrategy implements MetadataStrategy {
                 if (parentNode.has("extra") && parentNode.get("extra").has("seed_widgets")) {
                     processGlobalSeedMap(parentNode.get("extra").get("seed_widgets"), value, results);
                 }
-            }
-            else if (key.equals("api_nodes") && value.isObject()) {
+            } else if (key.equals("api_nodes") && value.isObject()) {
                 processApiWorkflow(value, results);
                 results.put("_api_graph_analyzed", "true");
                 results.put("_lock_core_params", "true");
-            }
-            else if (isNodeId(key) && value.has("class_type") && value.has("inputs")) {
+            } else if (isNodeId(key) && value.has("class_type") && value.has("inputs")) {
                 if (!results.containsKey("_api_graph_analyzed")) {
                     processApiWorkflow(parentNode, results);
                     results.put("_api_graph_analyzed", "true");
                     results.put("_lock_core_params", "true");
                 }
-            }
-            else if (key.equalsIgnoreCase("inputs") && value.isObject()) {
+            } else if (key.equalsIgnoreCase("inputs") && value.isObject()) {
                 boolean skipCoreParams = results.containsKey("_api_graph_analyzed");
                 processInputsBlock(value, parentNode, results, skipCoreParams);
             }
         } catch (Exception e) {
-            // e.printStackTrace();
         }
     }
 
-    private boolean isNodeId(String key) { return key.matches("\\d+"); }
+    private boolean isNodeId(String key) {
+        return key.matches("\\d+");
+    }
+
+    /* ======================================================================
+       API Workflow Processing
+       ====================================================================== */
 
     private void processApiWorkflow(JsonNode root, Map<String, String> results) {
         JsonNode bestSampler = null;
@@ -102,18 +134,24 @@ public class ComfyUIStrategy implements MetadataStrategy {
                 processInputsBlock(node.get("inputs"), node, results, false);
                 double g = resolveFloatParamRecursive(node, "guidance", root);
                 if (g > -1) fluxGuidance = g;
-                if (type.contains("power lora loader")) extractPowerLoras(node.get("inputs"), results);
+                if (type.contains("power lora loader")) {
+                    extractPowerLoras(node.get("inputs"), results);
+                }
             }
 
             if (type.contains("scheduler") && node.has("inputs")) {
                 JsonNode schedVal = node.get("inputs").get("scheduler");
-                if (schedVal != null && schedVal.isTextual()) directSchedulerFound = schedVal.asText();
+                if (schedVal != null && schedVal.isTextual()) {
+                    directSchedulerFound = schedVal.asText();
+                }
             }
 
             long steps = -1;
             if (type.contains("samplercustom")) {
                 JsonNode sigmasNode = getLinkedNodeApi(node, "sigmas", root);
-                if (sigmasNode != null) steps = resolveNumericParamRecursive(sigmasNode, "steps", root);
+                if (sigmasNode != null) {
+                    steps = resolveNumericParamRecursive(sigmasNode, "steps", root);
+                }
             } else if (type.contains("sampler") && !type.contains("detailer") && !type.contains("upscale")) {
                 steps = resolveNumericParamRecursive(node, "steps", root);
             }
@@ -124,48 +162,73 @@ public class ComfyUIStrategy implements MetadataStrategy {
             }
         }
 
-        if (bestSampler != null) {
-            results.put("Steps", String.valueOf(maxSteps));
-            long s = resolveNumericParamRecursive(bestSampler, "seed", root);
-            if (s == -1) s = resolveNumericParamRecursive(bestSampler, "noise_seed", root);
-            if (s == -1) {
-                JsonNode noiseNode = getLinkedNodeApi(bestSampler, "noise", root);
-                if (noiseNode != null) s = resolveNumericParamRecursive(noiseNode, "noise_seed", root);
+        if (bestSampler == null) {
+            return;
+        }
+
+        results.put("Steps", String.valueOf(maxSteps));
+
+        long seed = resolveNumericParamRecursive(bestSampler, "seed", root);
+        if (seed == -1) {
+            seed = resolveNumericParamRecursive(bestSampler, "noise_seed", root);
+        }
+        if (seed == -1) {
+            JsonNode noiseNode = getLinkedNodeApi(bestSampler, "noise", root);
+            if (noiseNode != null) {
+                seed = resolveNumericParamRecursive(noiseNode, "noise_seed", root);
             }
-            if (s > -1) results.put("Seed", String.valueOf(s));
+        }
+        if (seed > -1) {
+            results.put("Seed", String.valueOf(seed));
+        }
 
-            double cfg = resolveFloatParamRecursive(bestSampler, "cfg", root);
-            if (cfg == -1) {
-                JsonNode guiderNode = getLinkedNodeApi(bestSampler, "guider", root);
-                if (guiderNode != null) cfg = resolveFloatParamRecursive(guiderNode, "cfg", root);
+        double cfg = resolveFloatParamRecursive(bestSampler, "cfg", root);
+        if (cfg == -1) {
+            JsonNode guiderNode = getLinkedNodeApi(bestSampler, "guider", root);
+            if (guiderNode != null) {
+                cfg = resolveFloatParamRecursive(guiderNode, "cfg", root);
             }
+        }
 
-            if (cfg > -1) {
-                String cfgStr = DF.format(cfg);
-                if (fluxGuidance > -1) cfgStr += " (distilled " + DF.format(fluxGuidance) + ")";
-                results.put("CFG", cfgStr);
+        if (cfg > -1) {
+            String cfgStr = DF.format(cfg);
+            if (fluxGuidance > -1) {
+                cfgStr += " (distilled " + DF.format(fluxGuidance) + ")";
             }
+            results.put("CFG", cfgStr);
+        }
 
-            String samp = resolveStringParamRecursive(bestSampler, "sampler_name", root);
-            if (samp == null) {
-                JsonNode sampNode = getLinkedNodeApi(bestSampler, "sampler", root);
-                if (sampNode != null) samp = resolveStringParamRecursive(sampNode, "sampler_name", root);
+        String sampler = resolveStringParamRecursive(bestSampler, "sampler_name", root);
+        if (sampler == null) {
+            JsonNode samplerNode = getLinkedNodeApi(bestSampler, "sampler", root);
+            if (samplerNode != null) {
+                sampler = resolveStringParamRecursive(samplerNode, "sampler_name", root);
             }
+        }
 
-            String sched = resolveStringParamRecursive(bestSampler, "scheduler", root);
-            if (sched == null) {
-                JsonNode sigNode = getLinkedNodeApi(bestSampler, "sigmas", root);
-                if (sigNode != null) sched = resolveStringParamRecursive(sigNode, "scheduler", root);
+        String scheduler = resolveStringParamRecursive(bestSampler, "scheduler", root);
+        if (scheduler == null) {
+            JsonNode sigNode = getLinkedNodeApi(bestSampler, "sigmas", root);
+            if (sigNode != null) {
+                scheduler = resolveStringParamRecursive(sigNode, "scheduler", root);
             }
+        }
 
-            // Fallback to direct finding if graph traversal failed
-            if (sched == null && directSchedulerFound != null) sched = directSchedulerFound;
+        if (scheduler == null && directSchedulerFound != null) {
+            scheduler = directSchedulerFound;
+        }
 
-            // FIXED: Explicitly separate keys
-            if (samp != null) results.put("Sampler", samp);
-            if (sched != null) results.put("Scheduler", sched);
+        if (sampler != null) {
+            results.put("Sampler", sampler);
+        }
+        if (scheduler != null) {
+            results.put("Scheduler", scheduler);
         }
     }
+
+    /* ======================================================================
+       UI Graph Processing
+       ====================================================================== */
 
     private void processNodes(JsonNode nodes, JsonNode links, Map<String, String> results) {
         Map<Integer, Integer> linkMap = buildLinkMap(links);
@@ -175,15 +238,18 @@ public class ComfyUIStrategy implements MetadataStrategy {
         long maxSteps = -1;
         double fluxGuidance = -1;
 
-        // 1. Output-Driven Strategy
         for (JsonNode node : nodes) {
             String type = getNodeType(node).toLowerCase();
             if (OUTPUT_NODE_TYPES.stream().anyMatch(type::contains) && isNodeActive(node)) {
                 JsonNode sourceSampler = traceBackToSampler(node, nodeMap, linkMap, 0);
                 if (sourceSampler != null) {
                     long steps = resolveNumericParam(sourceSampler, "steps", nodeMap, linkMap);
-                    if (steps == -1) steps = extractStepsFromWidgets(sourceSampler.get("widgets_values"));
-                    if (steps <= 0) steps = 20;
+                    if (steps == -1) {
+                        steps = extractStepsFromWidgets(sourceSampler.get("widgets_values"));
+                    }
+                    if (steps <= 0) {
+                        steps = 20;
+                    }
 
                     if (steps > maxSteps || bestSampler == null) {
                         maxSteps = steps;
@@ -193,7 +259,6 @@ public class ComfyUIStrategy implements MetadataStrategy {
             }
         }
 
-        // 2. Fallback Strategy
         if (bestSampler == null) {
             for (JsonNode node : nodes) {
                 if (!isNodeActive(node)) continue;
@@ -203,46 +268,59 @@ public class ComfyUIStrategy implements MetadataStrategy {
 
                 if (isSampler && !isExcluded) {
                     long steps = resolveNumericParam(node, "steps", nodeMap, linkMap);
-                    if (steps == -1) steps = extractStepsFromWidgets(node.get("widgets_values"));
-                    if (steps > 0) {
-                        if (steps > maxSteps) {
-                            maxSteps = steps;
-                            bestSampler = node;
-                        }
+                    if (steps == -1) {
+                        steps = extractStepsFromWidgets(node.get("widgets_values"));
+                    }
+                    if (steps > maxSteps) {
+                        maxSteps = steps;
+                        bestSampler = node;
                     }
                 }
             }
         }
 
-        // 3. Global Params Scan
         for (JsonNode node : nodes) {
             if (!isNodeActive(node)) continue;
             String type = getNodeType(node).toLowerCase();
 
             if (type.contains("guidance") || type.contains("guider")) {
                 double g = resolveFloatParam(node, "guidance", nodeMap, linkMap);
-                if (g > -1) fluxGuidance = g;
+                if (g > -1) {
+                    fluxGuidance = g;
+                }
             }
 
             JsonNode widgets = node.get("widgets_values");
             if (isAllowedModelNode(type)) {
-                if (type.contains("loraloader")) extractLoras(widgets, results);
-                else extractModelFromList(widgets, results);
+                if (type.contains("loraloader")) {
+                    extractLoras(widgets, results);
+                } else {
+                    extractModelFromList(widgets, results);
+                }
             }
+
             if (type.contains("power lora loader") && node.has("inputs")) {
                 extractPowerLoras(node.get("inputs"), results);
             }
         }
 
         if (bestSampler != null) {
-            results.put("_active_sampler_id", String.valueOf(bestSampler.get("id").asInt()));
+            results.put("_active_sampler_id", bestSampler.get("id").asText());
 
-            if (maxSteps > -1) results.put("Steps", String.valueOf(maxSteps));
+            if (maxSteps > -1) {
+                results.put("Steps", String.valueOf(maxSteps));
+            }
 
             long seed = resolveNumericParam(bestSampler, "seed", nodeMap, linkMap);
-            if (seed == -1) seed = resolveNumericParam(bestSampler, "noise_seed", nodeMap, linkMap);
-            if (seed == -1) seed = extractSeedFromWidgets(bestSampler.get("widgets_values"));
-            if (seed > -1) results.put("Seed", String.valueOf(seed));
+            if (seed == -1) {
+                seed = resolveNumericParam(bestSampler, "noise_seed", nodeMap, linkMap);
+            }
+            if (seed == -1) {
+                seed = extractSeedFromWidgets(bestSampler.get("widgets_values"));
+            }
+            if (seed > -1) {
+                results.put("Seed", String.valueOf(seed));
+            }
 
             double cfg = resolveFloatParam(bestSampler, "cfg", nodeMap, linkMap);
             if (cfg == -1 || Math.abs(cfg - maxSteps) < 0.001 || cfg < 1.0) {
@@ -251,23 +329,31 @@ public class ComfyUIStrategy implements MetadataStrategy {
 
             if (cfg > -1) {
                 String cfgStr = DF.format(cfg);
-                if (fluxGuidance > -1) cfgStr += " (distilled " + DF.format(fluxGuidance) + ")";
+                if (fluxGuidance > -1) {
+                    cfgStr += " (distilled " + DF.format(fluxGuidance) + ")";
+                }
                 results.put("CFG", cfgStr);
             }
 
-            String samp = resolveStringParam(bestSampler, "sampler", nodeMap, linkMap);
-            if (samp == null) samp = extractKeyword(bestSampler.get("widgets_values"), SAMPLER_KEYWORDS);
+            String sampler = resolveStringParam(bestSampler, "sampler", nodeMap, linkMap);
+            if (sampler == null) {
+                sampler = extractKeyword(bestSampler.get("widgets_values"), SAMPLER_KEYWORDS);
+            }
 
-            String sched = resolveStringParam(bestSampler, "scheduler", nodeMap, linkMap);
-            if (sched == null) sched = extractKeyword(bestSampler.get("widgets_values"), SCHEDULER_KEYWORDS);
+            String scheduler = resolveStringParam(bestSampler, "scheduler", nodeMap, linkMap);
+            if (scheduler == null) {
+                scheduler = extractKeyword(bestSampler.get("widgets_values"), SCHEDULER_KEYWORDS);
+            }
 
-            // FIXED: Explicitly separate keys
-            if (samp != null) results.put("Sampler", samp);
-            if (sched != null) results.put("Scheduler", sched);
+            if (sampler != null) {
+                results.put("Sampler", sampler);
+            }
+            if (scheduler != null) {
+                results.put("Scheduler", scheduler);
+            }
 
             extractPromptsGraph(bestSampler, nodeMap, linkMap, results);
         } else {
-            // Fallback
             for (JsonNode node : nodes) {
                 if (isNodeActive(node) && isTextOrPrimitiveNode(node)) {
                     extractPromptText(node, node.get("widgets_values"), results, "Prompt");
@@ -495,7 +581,6 @@ public class ComfyUIStrategy implements MetadataStrategy {
             String k = field.getKey().toLowerCase();
             JsonNode v = field.getValue();
 
-            // FIXED: Ensure strict key separation here as well
             if (!skipCoreParams && !lockCore) {
                 if (k.equals("scheduler")) results.put("Scheduler", v.asText());
                 if (k.equals("sampler_name")) results.put("Sampler", v.asText());
@@ -505,7 +590,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
                 if (!skipCoreParams && !lockCore) {
                     if (k.equals("steps")) results.put("Steps", v.asText());
                     if (k.equals("cfg") || k.equals("cfg_scale")) results.put("CFG", v.asText());
-                    if ((k.equals("seed") || k.equals("noise_seed")) && !results.containsKey("_seed_locked")) results.put("Seed", v.asText());
+                    if ((k.equals("seed") || k.equals("noise_seed")) && !results.containsKey("_seed_locked"))
+                        results.put("Seed", v.asText());
                 }
             } else if (v.isTextual()) {
                 String txt = v.asText();
@@ -540,7 +626,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
 
     private Map<Integer, Integer> buildLinkMap(JsonNode links) {
         Map<Integer, Integer> map = new HashMap<>();
-        if (links != null) for (JsonNode link : links) if (link.size() >= 2) map.put(link.get(0).asInt(), link.get(1).asInt());
+        if (links != null)
+            for (JsonNode link : links) if (link.size() >= 2) map.put(link.get(0).asInt(), link.get(1).asInt());
         return map;
     }
 
@@ -562,7 +649,11 @@ public class ComfyUIStrategy implements MetadataStrategy {
     }
 
     private long asLongSafe(JsonNode node) {
-        try { return node.isNumber() ? node.asLong() : Long.parseLong(node.asText().split("\\.")[0]); } catch (Exception e) { return -1; }
+        try {
+            return node.isNumber() ? node.asLong() : Long.parseLong(node.asText().split("\\.")[0]);
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     private boolean isValidModelFile(String filename) {
@@ -597,7 +688,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
 
     private String getNodeTitle(JsonNode node) {
         if (node.has("title")) return node.get("title").asText().toLowerCase();
-        if (node.has("_meta") && node.get("_meta").has("title")) return node.get("_meta").get("title").asText().toLowerCase();
+        if (node.has("_meta") && node.get("_meta").has("title"))
+            return node.get("_meta").get("title").asText().toLowerCase();
         return "";
     }
 
@@ -657,7 +749,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
                             JsonNode source = nodeMap.get(linkMap.get(linkId));
                             if (source != null && isNodeActive(source)) {
                                 if (source.has("widgets_values")) {
-                                    for (JsonNode w : source.get("widgets_values")) if (isNumeric(w)) return w.asDouble();
+                                    for (JsonNode w : source.get("widgets_values"))
+                                        if (isNumeric(w)) return w.asDouble();
                                 }
                                 if (source.has("inputs") && source.get("inputs").has(paramName)) {
                                     JsonNode v = source.get("inputs").get(paramName);
@@ -692,7 +785,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
         for (JsonNode input : node.get("inputs")) {
             String name = input.get("name").asText().toLowerCase();
             if (name.contains(paramName)) {
-                if (input.has("widget") && input.get("widget").has("value")) return input.get("widget").get("value").asText();
+                if (input.has("widget") && input.get("widget").has("value"))
+                    return input.get("widget").get("value").asText();
                 if (input.has("link") && !input.get("link").isNull() && input.get("link").isInt()) {
                     int linkId = input.get("link").asInt();
                     if (linkMap.containsKey(linkId)) {
@@ -703,8 +797,10 @@ public class ComfyUIStrategy implements MetadataStrategy {
                                 if (w != null && w.isTextual()) return w.asText();
                             }
                             if (source.has("inputs")) {
-                                if (source.get("inputs").has("sampler_name")) return source.get("inputs").get("sampler_name").asText();
-                                if (source.get("inputs").has("scheduler")) return source.get("inputs").get("scheduler").asText();
+                                if (source.get("inputs").has("sampler_name"))
+                                    return source.get("inputs").get("sampler_name").asText();
+                                if (source.get("inputs").has("scheduler"))
+                                    return source.get("inputs").get("scheduler").asText();
                             }
                         }
                     }
@@ -738,7 +834,11 @@ public class ComfyUIStrategy implements MetadataStrategy {
 
     private long extractSeedFromWidgets(JsonNode widgets) {
         if (widgets == null) return -1;
-        for (JsonNode w : widgets) if (isNumeric(w)) { long val = w.asLong(); if (val > 1000000) return val; }
+        for (JsonNode w : widgets)
+            if (isNumeric(w)) {
+                long val = w.asLong();
+                if (val > 1000000) return val;
+            }
         return -1;
     }
 
@@ -756,7 +856,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
 
     private String extractKeyword(JsonNode widgets, Set<String> keywords) {
         if (widgets == null) return null;
-        for (JsonNode w : widgets) if (w.isTextual() && keywords.stream().anyMatch(w.asText().toLowerCase()::contains)) return w.asText();
+        for (JsonNode w : widgets)
+            if (w.isTextual() && keywords.stream().anyMatch(w.asText().toLowerCase()::contains)) return w.asText();
         return null;
     }
 
@@ -828,7 +929,12 @@ public class ComfyUIStrategy implements MetadataStrategy {
             String name = cleanFilename(m.group(1));
             String strVal = m.group(2);
             double strength = 1.0;
-            if (strVal != null) { try { strength = Double.parseDouble(strVal); } catch (NumberFormatException e) {} }
+            if (strVal != null) {
+                try {
+                    strength = Double.parseDouble(strVal);
+                } catch (NumberFormatException e) {
+                }
+            }
             String existing = results.getOrDefault("Loras", "");
             if (!existing.contains(name)) appendResult(results, "Loras", formatLoraString(name, strength));
         }
@@ -861,7 +967,8 @@ public class ComfyUIStrategy implements MetadataStrategy {
         if (inputs.has(paramName)) {
             JsonNode val = inputs.get(paramName);
             if (isNumeric(val)) return val.asDouble();
-            if (val.isArray() && val.size() == 2) return resolveFloatValueRecursive(root.get(val.get(0).asText()), root);
+            if (val.isArray() && val.size() == 2)
+                return resolveFloatValueRecursive(root.get(val.get(0).asText()), root);
         }
         return -1;
     }

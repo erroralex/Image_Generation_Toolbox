@@ -11,11 +11,28 @@ import com.nilsson.imagetoolbox.service.parser.TextParamsParser;
 import com.nilsson.imagetoolbox.service.strategy.*;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
+/**
+ * Service responsible for extracting, parsing, and interpreting image metadata.
+ *
+ * <p>Supports multiple AI image generation formats including SwarmUI, ComfyUI,
+ * InvokeAI, NovelAI, and Automatic1111-style parameter blocks. Metadata is sourced
+ * from embedded image tags and parsed using strategy-based JSON extraction.</p>
+ *
+ * <p>Provides both raw metadata access and structured key-value extraction for UI
+ * consumption.</p>
+ */
 public class MetadataService {
+
+    // ==================================================================================
+    // CONFIGURATION
+    // ==================================================================================
 
     private final ObjectMapper mapper = new ObjectMapper()
             .configure(JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS, true)
@@ -29,7 +46,10 @@ public class MetadataService {
             new CommonStrategy()
     );
 
-    // --- NEW: Expose raw metadata for the UI viewer ---
+    // ==================================================================================
+    // PUBLIC API
+    // ==================================================================================
+
     public String getRawMetadata(File file) {
         return findBestMetadataChunk(file);
     }
@@ -37,10 +57,8 @@ public class MetadataService {
     public Map<String, String> getExtractedData(File file) {
         Map<String, String> results = new HashMap<>();
 
-        // 1. Extract physical dimensions (First priority)
         extractPhysicalDimensions(file, results);
 
-        // 2. Find Metadata
         String rawData = findBestMetadataChunk(file);
 
         if (rawData == null || rawData.isEmpty()) {
@@ -51,11 +69,12 @@ public class MetadataService {
         results.put("Raw", rawData);
         String trimmed = rawData.trim();
 
-        // 3. Process Data
-        if (trimmed.startsWith("{") || (trimmed.startsWith("\"") && trimmed.contains("\"prompt\""))) {
+        if (trimmed.startsWith("{") ||
+                (trimmed.startsWith("\"") && trimmed.contains("\"prompt\""))) {
             parseJsonMetadata(trimmed, results);
         }
-        else if (rawData.contains("Steps:") && (rawData.contains("Sampler:") || rawData.contains("Schedule type:"))) {
+        else if (rawData.contains("Steps:") &&
+                (rawData.contains("Sampler:") || rawData.contains("Schedule type:"))) {
             results.putAll(TextParamsParser.parse(rawData));
             results.put("Software", "A1111 / Forge");
         }
@@ -67,11 +86,26 @@ public class MetadataService {
         return results;
     }
 
+    public static javafx.scene.image.Image loadFxImage(File file) {
+        try {
+            BufferedImage bImg = ImageIO.read(file);
+            if (bImg != null) {
+                return javafx.embed.swing.SwingFXUtils.toFXImage(bImg, null);
+            }
+        } catch (Exception e) {
+            System.err.println("ImageIO failed for " + file.getName() + ": " + e.getMessage());
+        }
+        return new javafx.scene.image.Image(file.toURI().toString());
+    }
+
+    // ==================================================================================
+    // METADATA EXTRACTION
+    // ==================================================================================
+
     private void extractPhysicalDimensions(File file, Map<String, String> results) {
         int width = 0;
         int height = 0;
 
-        // METHOD 1: Fast Metadata Reading
         try {
             Metadata metadata = ImageMetadataReader.readMetadata(file);
             for (Directory directory : metadata.getDirectories()) {
@@ -79,7 +113,6 @@ public class MetadataService {
                     String name = tag.getTagName().toLowerCase();
                     String desc = tag.getDescription();
                     if (desc == null || desc.isEmpty()) continue;
-
                     if (name.contains("thumbnail") || name.contains("resolution")) continue;
 
                     String valStr = desc.split(" ")[0];
@@ -94,23 +127,24 @@ public class MetadataService {
             }
         } catch (Exception ignored) {}
 
-        // METHOD 2: Fallback to ImageIO (Will work for WebP if TwelveMonkeys plugin is present)
-        if (width == 0 || height == 0) {
-            try {
-                BufferedImage bimg = ImageIO.read(file);
-                if (bimg != null) {
-                    width = bimg.getWidth();
-                    height = bimg.getHeight();
+        try (ImageInputStream in = ImageIO.createImageInputStream(file)) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (readers.hasNext()) {
+                ImageReader reader = readers.next();
+                try {
+                    reader.setInput(in);
+                    width = reader.getWidth(0);
+                    height = reader.getHeight(0);
+                } finally {
+                    reader.dispose();
                 }
-            } catch (Exception ignored) { }
-        }
-
-        if (width > 0) results.put("Width", String.valueOf(width));
-        if (height > 0) results.put("Height", String.valueOf(height));
+            }
+        } catch (IOException ignored) {}
     }
 
     private String findBestMetadataChunk(File file) {
         List<String> candidates = new ArrayList<>();
+
         try {
             Metadata metadata = ImageMetadataReader.readMetadata(file);
             for (Directory directory : metadata.getDirectories()) {
@@ -118,8 +152,10 @@ public class MetadataService {
                     String desc = tag.getDescription();
                     if (desc == null) continue;
 
-                    if (tag.getTagName().toLowerCase().contains("parameters") ||
-                            tag.getTagName().toLowerCase().contains("user comment") ||
+                    String tagName = tag.getTagName().toLowerCase();
+
+                    if (tagName.contains("parameters") ||
+                            tagName.contains("user comment") ||
                             desc.contains("Steps:")) {
                         candidates.add(desc);
                     }
@@ -145,6 +181,7 @@ public class MetadataService {
                 bestChunk = chunk;
             }
         }
+
         return bestChunk;
     }
 
@@ -157,15 +194,23 @@ public class MetadataService {
         return 0;
     }
 
+    // ==================================================================================
+    // JSON PARSING
+    // ==================================================================================
+
     private void parseJsonMetadata(String json, Map<String, String> results) {
         try {
             String cleanJson = json;
+
             int lastBrace = cleanJson.lastIndexOf("}");
             if (lastBrace != -1 && lastBrace < cleanJson.length() - 1) {
                 cleanJson = cleanJson.substring(0, lastBrace + 1);
             }
+
             if (cleanJson.startsWith("\"")) {
-                cleanJson = cleanJson.substring(1, cleanJson.length() - 1).replace("\\\"", "\"");
+                cleanJson = cleanJson
+                        .substring(1, cleanJson.length() - 1)
+                        .replace("\\\"", "\"");
             }
 
             JsonNode root = mapper.readTree(cleanJson);
@@ -185,9 +230,9 @@ public class MetadataService {
                     }
                 }
             }
+
             results.put("Software", software);
 
-            // Pass software type to restrict strategies
             findKeysRecursively(root, results, software);
 
             if (!results.containsKey("Prompt") || results.get("Prompt").isEmpty()) {
@@ -205,17 +250,21 @@ public class MetadataService {
                 Map.Entry<String, JsonNode> entry = fields.next();
 
                 for (MetadataStrategy strategy : jsonStrategies) {
-                    // FIX: If ComfyUI is detected, ONLY allow ComfyUIStrategy to run.
-                    // This prevents CommonStrategy from scraping incorrect fields.
                     if (software.contains("ComfyUI") && !(strategy instanceof ComfyUIStrategy)) {
                         continue;
                     }
-                    strategy.extract(entry.getKey().toLowerCase(), entry.getValue(), node, results);
+                    strategy.extract(
+                            entry.getKey().toLowerCase(),
+                            entry.getValue(),
+                            node,
+                            results
+                    );
                 }
 
                 findKeysRecursively(entry.getValue(), results, software);
             }
-        } else if (node.isArray()) {
+        }
+        else if (node.isArray()) {
             for (JsonNode child : node) {
                 findKeysRecursively(child, results, software);
             }
@@ -231,17 +280,5 @@ public class MetadataService {
             }
         });
         return longest[0];
-    }
-
-    public static javafx.scene.image.Image loadFxImage(File file) {
-        try {
-            BufferedImage bImg = ImageIO.read(file);
-            if (bImg != null) {
-                return javafx.embed.swing.SwingFXUtils.toFXImage(bImg, null);
-            }
-        } catch (Exception e) {
-            System.err.println("ImageIO failed for " + file.getName() + ": " + e.getMessage());
-        }
-        return new javafx.scene.image.Image(file.toURI().toString());
     }
 }

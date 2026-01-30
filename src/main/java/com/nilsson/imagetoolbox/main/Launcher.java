@@ -1,7 +1,7 @@
-package com.nilsson.imagetoolbox;
+package com.nilsson.imagetoolbox.main;
 
 public class Launcher {
     public static void main(String[] args) {
-        ImageToolboxApp.main(args);
+        MainApp.main(args);
     }
 }

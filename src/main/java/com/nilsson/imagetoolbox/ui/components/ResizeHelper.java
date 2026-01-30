@@ -1,31 +1,41 @@
-package com.nilsson.imagetoolbox.ui;
+package com.nilsson.imagetoolbox.ui.components;
 
 import javafx.scene.Cursor;
 import javafx.scene.Scene;
 import javafx.scene.input.MouseEvent;
 import javafx.stage.Stage;
 
+/**
+ * Utility class that enables custom resize behavior for a JavaFX {@link Stage}
+ * by listening to mouse events on its {@link Scene}.
+ * <p>
+ * The helper attaches mouse event filters to:
+ * <ul>
+ *     <li>Update the cursor when the mouse is near the window border.</li>
+ *     <li>Start resizing when the mouse is pressed on a resize border.</li>
+ *     <li>Resize the stage while dragging, with enforced minimum size.</li>
+ *     <li>End the resize operation when the mouse button is released.</li>
+ * </ul>
+ * This is intended for undecorated stages where standard window chrome is not available.
+ */
 public class ResizeHelper {
     private static final int BORDER = 8;
 
     public static void addResizeListener(Stage stage) {
         ResizeListener listener = new ResizeListener(stage);
 
-        // Listener to attach event filters whenever the scene is set or changed
         stage.sceneProperty().addListener((obs, oldScene, newScene) -> {
             if (newScene != null) {
                 addListeners(newScene, listener);
             }
         });
 
-        // If scene is already available, attach immediately
         if (stage.getScene() != null) {
             addListeners(stage.getScene(), listener);
         }
     }
 
     private static void addListeners(Scene scene, ResizeListener listener) {
-        // USE FILTERS (Capture Phase) instead of Handlers.
         scene.addEventFilter(MouseEvent.MOUSE_MOVED, listener::processMouseMoved);
         scene.addEventFilter(MouseEvent.MOUSE_PRESSED, listener::processMousePressed);
         scene.addEventFilter(MouseEvent.MOUSE_DRAGGED, listener::processMouseDragged);
@@ -37,7 +47,6 @@ public class ResizeHelper {
         private boolean resizing = false;
         private Cursor cursor = Cursor.DEFAULT;
 
-        // Start variables
         private double startScreenX, startScreenY, startW, startH, startX, startY;
 
         public ResizeListener(Stage stage) {
@@ -70,13 +79,12 @@ public class ResizeHelper {
             else if (bottom) newCursor = Cursor.S_RESIZE;
 
             scene.setCursor(newCursor);
-            cursor = newCursor; // Store for press event
+            cursor = newCursor;
         }
 
         public void processMousePressed(MouseEvent e) {
             if (stage.isMaximized() || cursor == Cursor.DEFAULT) return;
 
-            // Start resizing
             resizing = true;
             startW = stage.getWidth();
             startH = stage.getHeight();
@@ -85,7 +93,6 @@ public class ResizeHelper {
             startScreenX = e.getScreenX();
             startScreenY = e.getScreenY();
 
-            // Consume event so UI elements below don't get clicked
             e.consume();
         }
 
@@ -95,7 +102,6 @@ public class ResizeHelper {
             double dx = e.getScreenX() - startScreenX;
             double dy = e.getScreenY() - startScreenY;
 
-            // Handle Horizontal Resize (Right / Left)
             if (cursor == Cursor.E_RESIZE || cursor == Cursor.NE_RESIZE || cursor == Cursor.SE_RESIZE) {
                 stage.setWidth(Math.max(600, startW + dx));
             } else if (cursor == Cursor.W_RESIZE || cursor == Cursor.NW_RESIZE || cursor == Cursor.SW_RESIZE) {
@@ -106,7 +112,6 @@ public class ResizeHelper {
                 }
             }
 
-            // Handle Vertical Resize (Bottom / Top)
             if (cursor == Cursor.S_RESIZE || cursor == Cursor.SE_RESIZE || cursor == Cursor.SW_RESIZE) {
                 stage.setHeight(Math.max(400, startH + dy));
             } else if (cursor == Cursor.N_RESIZE || cursor == Cursor.NE_RESIZE || cursor == Cursor.NW_RESIZE) {

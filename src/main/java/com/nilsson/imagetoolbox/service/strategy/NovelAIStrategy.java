@@ -7,9 +7,23 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+/**
+ * Metadata parsing strategy for NovelAI-generated JSON.
+ *
+ * <p>This strategy extracts prompts, generation parameters, and basic
+ * model identification from NovelAI metadata, handling both textual
+ * and numeric configuration values.</p>
+ *
+ * <p>The implementation avoids overwriting higher-priority data that
+ * may already have been resolved by other strategies.</p>
+ */
 public class NovelAIStrategy implements MetadataStrategy {
 
     private static final ObjectMapper mapper = new ObjectMapper();
+
+    /* ============================================================
+       Public API
+       ============================================================ */
 
     public Map<String, String> parse(String text) {
         Map<String, String> results = new HashMap<>();
@@ -26,17 +40,18 @@ public class NovelAIStrategy implements MetadataStrategy {
         return results;
     }
 
+    /* ============================================================
+       MetadataStrategy Implementation
+       ============================================================ */
+
     @Override
     public void extract(String key, JsonNode value, JsonNode parentNode, Map<String, String> results) {
-        // NovelAI sometimes uses numbers for config
         if (!value.isTextual() && !value.isNumber()) return;
 
         String text = value.asText().trim();
         if (text.isEmpty()) return;
 
-        // 1. Prompts
         if (key.equals("prompt")) {
-            // Prevent overwriting if a prompt was already found (e.g. by ComfyUI)
             if (!results.containsKey("Prompt")) {
                 results.put("Prompt", text);
             }
@@ -45,7 +60,6 @@ public class NovelAIStrategy implements MetadataStrategy {
             results.put("Negative", text);
         }
 
-        // 2. Parameters
         else if (key.equals("scale")) {
             results.put("CFG", text);
         }
@@ -59,7 +73,6 @@ public class NovelAIStrategy implements MetadataStrategy {
             results.put("Sampler", text);
         }
 
-        // 3. Model Logic
         else if (key.equals("software") && text.equalsIgnoreCase("novelai")) {
             if (!results.containsKey("Model")) {
                 results.put("Model", "NovelAI Diffusion");

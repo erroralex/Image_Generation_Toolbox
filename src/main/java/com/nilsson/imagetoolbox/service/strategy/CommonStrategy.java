@@ -1,12 +1,28 @@
 package com.nilsson.imagetoolbox.service.strategy;
 
 import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Common metadata parsing strategy for text-based image generation formats
+ * such as Automatic1111 and compatible UIs.
+ *
+ * <p>This strategy extracts prompts, negative prompts, generation parameters,
+ * LoRA references, and selected metadata fields from both free-form text
+ * and structured JSON nodes.</p>
+ *
+ * <p>The class is intentionally tolerant to format variations and partial data,
+ * prioritizing robustness over strict validation.</p>
+ */
 public class CommonStrategy implements MetadataStrategy {
+
+    /* ============================================================
+       Public API
+       ============================================================ */
 
     public Map<String, String> parse(String text) {
         Map<String, String> results = new HashMap<>();
@@ -77,9 +93,6 @@ public class CommonStrategy implements MetadataStrategy {
             }
         }
 
-        // --- FIXED: Removed the block that merged Scheduler into Sampler ---
-
-        // Logic to merge Distilled CFG into CFG (Flux style)
         if (results.containsKey("Distilled CFG")) {
             String cfg = results.get("CFG");
             String dist = results.get("Distilled CFG");
@@ -94,28 +107,9 @@ public class CommonStrategy implements MetadataStrategy {
         return results;
     }
 
-    private void extractLorasFromText(String prompt, Map<String, String> results) {
-        Pattern loraPattern = Pattern.compile("<lora:([^:>]+)(?::([^:>]+))?(?::([^:>]+))?>", Pattern.CASE_INSENSITIVE);
-        Matcher m = loraPattern.matcher(prompt);
-        StringBuilder loraBuilder = new StringBuilder();
-
-        while (m.find()) {
-            String name = m.group(1);
-            String strength = m.group(2);
-
-            if (loraBuilder.length() > 0) loraBuilder.append(", ");
-            loraBuilder.append("<lora:").append(name);
-
-            if (strength != null) {
-                loraBuilder.append(":").append(strength);
-            }
-            loraBuilder.append(">");
-        }
-
-        if (loraBuilder.length() > 0) {
-            results.put("Loras", loraBuilder.toString());
-        }
-    }
+    /* ============================================================
+       JSON Extraction (MetadataStrategy)
+       ============================================================ */
 
     @Override
     public void extract(String key, JsonNode value, JsonNode parentNode, Map<String, String> results) {
@@ -127,7 +121,7 @@ public class CommonStrategy implements MetadataStrategy {
         else if (key.equals("seed") || key.equals("noise_seed")) results.put("Seed", text);
         else if (key.equals("cfg") || key.equals("cfgscale")) results.put("CFG", text);
         else if (key.equals("sampler_name")) results.put("Sampler", text);
-        else if (key.equals("scheduler")) results.put("Scheduler", text); // Explicitly handle scheduler
+        else if (key.equals("scheduler")) results.put("Scheduler", text);
 
         else if (key.equals("width")) {
             if (isValidSize(text)) results.put("Width", text);
@@ -149,6 +143,36 @@ public class CommonStrategy implements MetadataStrategy {
             if (!existing.contains(text)) {
                 results.put("ControlNet", existing.isEmpty() ? text : existing + ", " + text);
             }
+        }
+    }
+
+    /* ============================================================
+       Helpers
+       ============================================================ */
+
+    private void extractLorasFromText(String prompt, Map<String, String> results) {
+        Pattern loraPattern = Pattern.compile(
+                "<lora:([^:>]+)(?::([^:>]+))?(?::([^:>]+))?>",
+                Pattern.CASE_INSENSITIVE
+        );
+        Matcher m = loraPattern.matcher(prompt);
+        StringBuilder loraBuilder = new StringBuilder();
+
+        while (m.find()) {
+            String name = m.group(1);
+            String strength = m.group(2);
+
+            if (loraBuilder.length() > 0) loraBuilder.append(", ");
+            loraBuilder.append("<lora:").append(name);
+
+            if (strength != null) {
+                loraBuilder.append(":").append(strength);
+            }
+            loraBuilder.append(">");
+        }
+
+        if (loraBuilder.length() > 0) {
+            results.put("Loras", loraBuilder.toString());
         }
     }
 

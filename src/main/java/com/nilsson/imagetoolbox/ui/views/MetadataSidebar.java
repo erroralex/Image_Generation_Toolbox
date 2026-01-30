@@ -1,9 +1,5 @@
 package com.nilsson.imagetoolbox.ui.views;
 
-import com.nilsson.imagetoolbox.data.UserDataManager;
-import com.nilsson.imagetoolbox.service.MetadataService;
-import javafx.application.Platform;
-import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -17,22 +13,32 @@ import java.awt.Desktop;
 import java.io.File;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
 
+/**
+ * Sidebar component for displaying image metadata, tags, and actions.
+ * <p>
+ * This class is a "Dumb View". It does not fetch data.
+ * It receives data via {@link #updateData(File, Map, Set, boolean)} and
+ * delegates actions to the {@link SidebarListener}.
+ */
 public class MetadataSidebar extends ScrollPane {
 
-    private final VBox contentBox;
-    private final MetadataService metadataService;
-    private final UserDataManager dataManager = UserDataManager.getInstance();
-    private final Consumer<File> onShowRawRequest; // Callback to show overlay
+    public interface SidebarListener {
+        void onToggleStar(File file);
+        void onAddTag(File file, String tag);
+        void onRemoveTag(File file, String tag);
+        void onOpenRaw(File file);
+    }
 
-    private Task<Map<String, String>> currentMetaTask;
+    private final VBox contentBox;
+    private final SidebarListener listener;
+
     private FlowPane tagsFlowPane;
     private TextField tagInput;
+    private File currentFile;
 
-    public MetadataSidebar(MetadataService metadataService, Consumer<File> onShowRawRequest) {
-        this.metadataService = metadataService;
-        this.onShowRawRequest = onShowRawRequest;
+    public MetadataSidebar(SidebarListener listener) {
+        this.listener = listener;
 
         this.contentBox = new VBox(15);
         this.contentBox.setPadding(new Insets(20));
@@ -44,8 +50,11 @@ public class MetadataSidebar extends ScrollPane {
         this.getStyleClass().add("meta-pane");
     }
 
-    public void setFile(File file) {
-        if (currentMetaTask != null && !currentMetaTask.isDone()) currentMetaTask.cancel();
+    /**
+     * Updates the sidebar with fresh data pushed from the Controller.
+     */
+    public void updateData(File file, Map<String, String> metadata, Set<String> tags, boolean isStarred) {
+        this.currentFile = file;
         contentBox.getChildren().clear();
 
         if (file == null) return;
@@ -53,28 +62,33 @@ public class MetadataSidebar extends ScrollPane {
         // 1. Toolbar
         HBox toolbar = new HBox(15);
         toolbar.setAlignment(Pos.CENTER_LEFT);
-        toolbar.setPadding(new Insets(0,0,10,0));
+        toolbar.setPadding(new Insets(0, 0, 10, 0));
 
         Button btnStar = new Button();
         btnStar.getStyleClass().add("icon-button");
-        boolean isStarred = dataManager.isStarred(file);
         FontIcon starIcon = new FontIcon(isStarred ? FontAwesome.STAR : FontAwesome.STAR_O);
         starIcon.setIconSize(18);
         if (isStarred) starIcon.setStyle("-fx-icon-color: gold;");
         btnStar.setGraphic(starIcon);
-        btnStar.setOnAction(e -> { dataManager.toggleStar(file); setFile(file); }); // Reload to update icon
+        btnStar.setOnAction(e -> {
+            if (listener != null) listener.onToggleStar(file);
+        });
 
         Button btnRaw = new Button();
         btnRaw.setTooltip(new Tooltip("View Raw Metadata"));
         btnRaw.getStyleClass().add("icon-button");
         btnRaw.setGraphic(new FontIcon(FontAwesome.FILE_CODE_O));
-        btnRaw.setOnAction(e -> onShowRawRequest.accept(file));
+        btnRaw.setOnAction(e -> {
+            if (listener != null) listener.onOpenRaw(file);
+        });
 
         Button btnFolder = new Button();
         btnFolder.setTooltip(new Tooltip("Open File Location"));
         btnFolder.getStyleClass().add("icon-button");
         btnFolder.setGraphic(new FontIcon(FontAwesome.FOLDER_OPEN_O));
-        btnFolder.setOnAction(e -> { try { Desktop.getDesktop().open(file.getParentFile()); } catch(Exception ex){} });
+        btnFolder.setOnAction(e -> {
+            try { Desktop.getDesktop().open(file.getParentFile()); } catch (Exception ex) {}
+        });
 
         toolbar.getChildren().addAll(btnStar, btnRaw, btnFolder);
         contentBox.getChildren().add(toolbar);
@@ -85,33 +99,29 @@ public class MetadataSidebar extends ScrollPane {
         title.setStyle("-fx-font-size: 14px; -fx-font-weight: bold; -fx-padding: 0 0 10 0;");
 
         tagsFlowPane = new FlowPane(8, 8);
-        Set<String> currentTags = dataManager.getTags(file);
-        if (currentTags != null) currentTags.forEach(t -> addTagChip(file, t));
+        if (tags != null) tags.forEach(t -> addTagChip(file, t));
 
         tagInput = new TextField();
         tagInput.setPromptText("+ Add Tag");
         tagInput.getStyleClass().add("search-field");
         tagInput.setOnAction(e -> {
             String txt = tagInput.getText().trim();
-            if (!txt.isEmpty()) { dataManager.addTag(file, txt); addTagChip(file, txt); tagInput.clear(); }
+            if (!txt.isEmpty() && listener != null) {
+                listener.onAddTag(file, txt);
+                tagInput.clear();
+            }
         });
 
         contentBox.getChildren().addAll(title, tagsFlowPane, tagInput, new Separator());
 
-        // 3. Async Metadata Loading
-        currentMetaTask = new Task<>() {
-            @Override protected Map<String, String> call() {
-                if (isCancelled()) return null;
-                return metadataService.getExtractedData(file);
-            }
-        };
-
-        currentMetaTask.setOnSucceeded(e -> {
-            Map<String, String> data = currentMetaTask.getValue();
-            if (data == null) return;
-            renderFields(data);
-        });
-        new Thread(currentMetaTask).start();
+        // 3. Render Metadata Fields
+        if (metadata != null && !metadata.isEmpty()) {
+            renderFields(metadata);
+        } else {
+            Label noMeta = new Label("No metadata found or indexing...");
+            noMeta.setStyle("-fx-text-fill: #666; -fx-font-style: italic;");
+            contentBox.getChildren().add(noMeta);
+        }
     }
 
     private void renderFields(Map<String, String> data) {
@@ -123,7 +133,8 @@ public class MetadataSidebar extends ScrollPane {
         contentBox.getChildren().add(sep);
 
         GridPane grid = new GridPane();
-        grid.setHgap(10); grid.setVgap(10);
+        grid.setHgap(10);
+        grid.setVgap(10);
         ColumnConstraints col1 = new ColumnConstraints(); col1.setPercentWidth(50);
         ColumnConstraints col2 = new ColumnConstraints(); col2.setPercentWidth(50);
         grid.getColumnConstraints().addAll(col1, col2);
@@ -144,44 +155,60 @@ public class MetadataSidebar extends ScrollPane {
         contentBox.getChildren().add(grid);
     }
 
-    // Helper methods (addMetaBlock, addGridItem, addTagChip) moved here...
-    // Note: addTagChip needs 'file' argument now to know what to delete.
     private void addTagChip(File file, String tag) {
         String displayTag = tag.trim();
         Label chip = new Label(displayTag);
         chip.getStyleClass().add("tag-chip");
         int hue = Math.abs(displayTag.toLowerCase().hashCode()) % 360;
         chip.setStyle("-fx-background-color: hsb(" + hue + ", 60%, 50%);");
+
         chip.setOnMouseClicked(e -> {
-            dataManager.removeTag(file, displayTag);
-            tagsFlowPane.getChildren().remove(chip);
+            if (listener != null) listener.onRemoveTag(file, displayTag);
         });
+
         tagsFlowPane.getChildren().add(chip);
     }
 
-    private void addMetaBlock(String label, String value, boolean copy) { /* Same implementation as before */
+    private void addMetaBlock(String label, String value, boolean copy) {
         if (value == null || value.isEmpty()) return;
-        HBox header = new HBox(10); header.setAlignment(Pos.CENTER_LEFT);
-        Label lbl = new Label(label); lbl.getStyleClass().add("meta-label");
+        HBox header = new HBox(10);
+        header.setAlignment(Pos.CENTER_LEFT);
+        Label lbl = new Label(label);
+        lbl.getStyleClass().add("meta-label");
         header.getChildren().add(lbl);
         if (copy) {
-            Button cp = new Button(); cp.setGraphic(new FontIcon(FontAwesome.COPY));
+            Button cp = new Button();
+            cp.setGraphic(new FontIcon(FontAwesome.COPY));
             cp.getStyleClass().add("icon-button-small");
-            cp.setOnAction(e -> { ClipboardContent cc = new ClipboardContent(); cc.putString(value); Clipboard.getSystemClipboard().setContent(cc); });
+            cp.setOnAction(e -> {
+                ClipboardContent cc = new ClipboardContent();
+                cc.putString(value);
+                Clipboard.getSystemClipboard().setContent(cc);
+            });
             header.getChildren().add(cp);
         }
-        TextArea t = new TextArea(value); t.setEditable(false); t.setWrapText(true);
+        TextArea t = new TextArea(value);
+        t.setEditable(false);
+        t.setWrapText(true);
         t.getStyleClass().add("meta-value-text-area");
         t.setPrefRowCount(Math.min(6, Math.max(1, value.length() / 45)));
-        VBox b = new VBox(2, header, t); b.getStyleClass().add("meta-value-box");
+        VBox b = new VBox(2, header, t);
+        b.getStyleClass().add("meta-value-box");
         contentBox.getChildren().add(b);
     }
 
-    private void addGridItem(GridPane g, String l, String v, int c, int r, int cs) { /* Same implementation */
-        if(v==null) v="-";
-        VBox b = new VBox(2); Label lb = new Label(l); lb.getStyleClass().add("meta-label");
-        TextArea t = new TextArea(v); t.setEditable(false); t.setWrapText(true); t.getStyleClass().add("meta-value-text-area");
-        t.setPrefRowCount(1); t.setMaxWidth(Double.MAX_VALUE);
-        b.getChildren().addAll(lb, t); g.add(b, c, r, cs, 1);
+    private void addGridItem(GridPane g, String l, String v, int c, int r, int cs) {
+        if (v == null) v = "-";
+        VBox b = new VBox(2);
+        Label lb = new Label(l);
+        lb.getStyleClass().add("meta-label");
+        TextArea t = new TextArea(v);
+        t.setEditable(false);
+        t.setWrapText(true);
+        t.getStyleClass().add("meta-value-text-area");
+        t.setPrefRowCount(1);
+        t.setMaxWidth(Double.MAX_VALUE);
+        b.getChildren().addAll(lb, t);
+        g.add(b, c, r, cs, 1);
     }
 }
