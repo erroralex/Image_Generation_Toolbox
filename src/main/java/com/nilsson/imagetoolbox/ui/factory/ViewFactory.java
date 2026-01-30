@@ -1,73 +1,43 @@
 package com.nilsson.imagetoolbox.ui.factory;
 
-import com.nilsson.imagetoolbox.data.UserDataManager;
-import com.nilsson.imagetoolbox.service.MetadataService;
 import com.nilsson.imagetoolbox.ui.RootLayout;
-import com.nilsson.imagetoolbox.ui.controllers.ImageBrowserController;
-import com.nilsson.imagetoolbox.ui.controllers.ScrubController;
-import com.nilsson.imagetoolbox.ui.controllers.SpeedSorterController;
-import com.nilsson.imagetoolbox.ui.views.ImageBrowserView;
-import com.nilsson.imagetoolbox.ui.views.ScrubView;
-import com.nilsson.imagetoolbox.ui.views.SpeedSorterView;
+import com.nilsson.imagetoolbox.ui.viewmodels.MainViewModel;
+import de.saxsys.mvvmfx.FluentViewLoader;
+import de.saxsys.mvvmfx.ViewTuple;
 import javafx.stage.Stage;
 
-import java.util.concurrent.ExecutorService;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 /**
- * Factory responsible for creating Views and wiring them to their Controllers.
- * <p>
- * This ensures that specific dependency implementations (like ThreadPools or Services)
- * are injected cleanly without the Views needing to know about them.
+ * Factory class responsible for instantiating and configuring UI components.
+ * This class leverages the mvvmfx FluentViewLoader to manage the lifecycle
+ * of Views and their corresponding ViewModels, ensuring proper dependency
+ * injection and stage linkage.
  */
+@Singleton
 public class ViewFactory {
 
-    private final UserDataManager userDataManager;
-    private final MetadataService metadataService;
-    private final ExecutorService sharedExecutor;
-
-    public ViewFactory(UserDataManager userDataManager,
-                       MetadataService metadataService,
-                       ExecutorService sharedExecutor) {
-        this.userDataManager = userDataManager;
-        this.metadataService = metadataService;
-        this.sharedExecutor = sharedExecutor;
+    // --- Constructor ---
+    @Inject
+    public ViewFactory() {
     }
 
+    // --- Factory Methods ---
+    /**
+     * Creates and initializes the root layout of the application.
+     *
+     * @param stage The primary stage used for window management and custom title bar logic.
+     * @return The initialized RootLayout instance.
+     */
     public RootLayout createRootLayout(Stage stage) {
-        // --- 1. Image Browser ---
-        ImageBrowserView browserView = new ImageBrowserView();
-        ImageBrowserController browserController = new ImageBrowserController(
-                userDataManager,
-                metadataService,
-                browserView,
-                sharedExecutor
-        );
-        browserView.setListener(browserController);
-        browserController.initializeSidebar(); // Initial UI state
+        ViewTuple<RootLayout, MainViewModel> tuple =
+                FluentViewLoader.javaView(RootLayout.class).load();
 
-        // --- 2. Speed Sorter ---
-        SpeedSorterView speedSorterView = new SpeedSorterView();
-        SpeedSorterController speedSorterController = new SpeedSorterController(
-                userDataManager,
-                speedSorterView
-        );
-        speedSorterView.setListener(speedSorterController);
-        speedSorterController.initialize();
+        RootLayout rootLayout = tuple.getCodeBehind();
 
-        // --- 3. Scrub View ---
-        ScrubView scrubView = new ScrubView();
-        ScrubController scrubController = new ScrubController(scrubView);
-        scrubView.setListener(scrubController);
+        rootLayout.setStage(stage);
 
-        // --- 4. Assemble Root ---
-        return new RootLayout(
-                stage,
-                browserView,
-                userDataManager,
-                browserController,
-                speedSorterController,
-                speedSorterView,
-                scrubView
-        );
+        return rootLayout;
     }
 }
