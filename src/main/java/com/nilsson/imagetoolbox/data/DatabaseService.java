@@ -2,19 +2,20 @@ package com.nilsson.imagetoolbox.data;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+
 import java.io.File;
 import java.sql.*;
 
 /**
- * Service class responsible for managing the SQLite database lifecycle and connectivity.
- * It utilizes the HikariCP connection pool to optimize performance for the Image Toolbox
- * application and handles automatic schema migrations using SQLite's user_version.
+ Service class responsible for managing the SQLite database lifecycle and connectivity.
+ It utilizes the HikariCP connection pool to optimize performance for the Image Toolbox
+ application and handles automatic schema migrations using SQLite's user_version.
  */
 public class DatabaseService {
 
     // --- Configuration ---
     private static final String DB_URL = "jdbc:sqlite:data/library.db";
-    private static final int CURRENT_DB_VERSION = 1;
+    private static final int CURRENT_DB_VERSION = 3;
     private final HikariDataSource dataSource;
 
     // --- Lifecycle ---
@@ -53,10 +54,10 @@ public class DatabaseService {
             if (currentVersion < CURRENT_DB_VERSION) {
                 System.out.println("Migrating database from version " + currentVersion + " to " + CURRENT_DB_VERSION);
                 try {
-                    switch (currentVersion) {
-                        case 0:
-                            applySchemaV1(conn);
-                    }
+                    if (currentVersion < 1) applySchemaV1(conn);
+                    if (currentVersion < 2) applySchemaV2(conn);
+                    if (currentVersion < 3) applySchemaV3(conn);
+
                     setDatabaseVersion(conn, CURRENT_DB_VERSION);
                     conn.commit();
                     System.out.println("Database migration completed successfully.");
@@ -68,6 +69,7 @@ public class DatabaseService {
         } catch (SQLException e) {
             System.err.println("CRITICAL: Failed to migrate database: " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Database migration failed.", e);
         }
     }
 
@@ -87,6 +89,7 @@ public class DatabaseService {
         }
     }
 
+    // --- Schema Definitions ---
     private void applySchemaV1(Connection conn) throws SQLException {
         String createImagesTable = """
                     CREATE TABLE IF NOT EXISTS images (
@@ -98,20 +101,19 @@ public class DatabaseService {
                 """;
 
         String createTagsTable = """
-                    CREATE TABLE IF NOT EXISTS tags (
+                    CREATE TABLE IF NOT EXISTS image_tags (
                         image_id INTEGER,
-                        tag_text TEXT NOT NULL,
-                        FOREIGN KEY(image_id) REFERENCES images(id) ON DELETE CASCADE,
-                        UNIQUE(image_id, tag_text)
+                        tag TEXT,
+                        FOREIGN KEY(image_id) REFERENCES images(id)
                     );
                 """;
 
         String createMetadataTable = """
-                    CREATE TABLE IF NOT EXISTS metadata (
+                    CREATE TABLE IF NOT EXISTS image_metadata (
                         image_id INTEGER,
-                        key_text TEXT,
-                        value_text TEXT,
-                        FOREIGN KEY(image_id) REFERENCES images(id) ON DELETE CASCADE
+                        key TEXT,
+                        value TEXT,
+                        FOREIGN KEY(image_id) REFERENCES images(id)
                     );
                 """;
 
@@ -136,8 +138,69 @@ public class DatabaseService {
             stmt.execute(createSettingsTable);
 
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON images(file_path);");
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_tags_text ON tags(tag_text);");
-            stmt.execute("CREATE INDEX IF NOT EXISTS idx_meta_val ON metadata(value_text);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_tags_text ON image_tags(tag);");
+        }
+    }
+
+    private void applySchemaV2(Connection conn) throws SQLException {
+        System.out.println("Applying Schema V2: FTS5 and File Hashing...");
+        try (Statement stmt = conn.createStatement()) {
+
+            boolean hasHashCol = false;
+            try (ResultSet rs = conn.getMetaData().getColumns(null, null, "images", "file_hash")) {
+                if (rs.next()) hasHashCol = true;
+            }
+            if (!hasHashCol) {
+                stmt.execute("ALTER TABLE images ADD COLUMN file_hash TEXT;");
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_file_hash ON images(file_hash);");
+            }
+
+            stmt.execute("CREATE VIRTUAL TABLE IF NOT EXISTS metadata_fts USING fts5(image_id UNINDEXED, global_text);");
+
+            boolean hasMetadataTable = false;
+            try (ResultSet rs = conn.getMetaData().getTables(null, null, "image_metadata", null)) {
+                if (rs.next()) hasMetadataTable = true;
+            }
+
+            if (hasMetadataTable) {
+                System.out.println("Re-indexing existing metadata for FTS...");
+                String populateFts = """
+                            INSERT INTO metadata_fts(image_id, global_text)
+                            SELECT image_id, group_concat(key || ': ' || value, ' ') 
+                            FROM image_metadata 
+                            GROUP BY image_id;
+                        """;
+                stmt.execute(populateFts);
+            } else {
+                System.out.println("Warning: image_metadata table missing during V2 migration. Skipping data copy.");
+            }
+        }
+    }
+
+    private void applySchemaV3(Connection conn) throws SQLException {
+        System.out.println("Applying Schema V3: Virtual Collections...");
+        try (Statement stmt = conn.createStatement()) {
+            String createCollections = """
+                        CREATE TABLE IF NOT EXISTS collections (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT UNIQUE NOT NULL,
+                            created_at INTEGER
+                        );
+                    """;
+
+            String createCollectionImages = """
+                        CREATE TABLE IF NOT EXISTS collection_images (
+                            collection_id INTEGER,
+                            image_id INTEGER,
+                            added_at INTEGER,
+                            PRIMARY KEY (collection_id, image_id),
+                            FOREIGN KEY(collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+                            FOREIGN KEY(image_id) REFERENCES images(id) ON DELETE CASCADE
+                        );
+                    """;
+
+            stmt.execute(createCollections);
+            stmt.execute(createCollectionImages);
         }
     }
 

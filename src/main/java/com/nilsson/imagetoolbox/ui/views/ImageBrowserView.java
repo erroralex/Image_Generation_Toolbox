@@ -11,7 +11,6 @@ import javafx.collections.ListChangeListener;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
-import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
@@ -35,29 +34,25 @@ import org.controlsfx.control.GridView;
 import javax.imageio.ImageIO;
 import java.io.File;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.ResourceBundle;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
- * The main browser view for the application, providing a multifaceted interface for
- * exploring image directories.
- * * Supports three view modes: Browser (Single image focus), Gallery (Grid), and List.
- * Features advanced image interactions including asynchronous thumbnail loading,
- * coordinate-aware zooming/panning, and full-screen presentation.
+ * Main View class for the Image Browser.
+ * Responsible for rendering the UI layout, handling user input for navigation/zooming,
+ * and managing the state between different view modes (Browser, Gallery, List).
+ * Coordinates between the FolderNav, MetadataSidebar, and Filmstrip components.
  */
 public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowserViewModel>, Initializable {
 
-    // --- State & Configuration ---
     public enum ViewMode { BROWSER, GALLERY, LIST }
 
     @InjectViewModel
     private ImageBrowserViewModel viewModel;
 
+    // --- Services & State ---
     private final ExecutorService thumbnailPool = Executors.newFixedThreadPool(6, r -> {
         Thread t = new Thread(r);
         t.setDaemon(true);
@@ -67,13 +62,16 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
 
     private Future<?> currentLoadingTask;
     private List<File> currentFiles = new ArrayList<>();
+    private final List<File> selectedFiles = new ArrayList<>();
+    private File lastAnchorFile = null;
     private int currentIndex = -1;
     private ViewMode currentViewMode = ViewMode.BROWSER;
 
-    // --- Components ---
+    // --- UI Components ---
     private final FolderNav folderNav;
     private final MetadataSidebar metadataSidebar;
     private final FilmstripView filmstripView;
+    private HBox filterBar;
     private StackPane centerContainer;
     private ImageView mainImageView;
     private StackPane singleViewContainer;
@@ -82,12 +80,14 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
     private StackPane overlayContainer;
     private TextArea rawMetaTextArea;
 
-    // --- Transformation Properties ---
+    // --- Controls & Transforms ---
+    private final TextField searchField = new TextField();
+    private final ComboBox<String> modelFilter = new ComboBox<>();
+    private final ComboBox<String> samplerFilter = new ComboBox<>();
     private final Translate zoomTranslate = new Translate();
     private final Scale zoomScale = new Scale();
 
-    // --- Initialization ---
-
+    // --- Constructor ---
     public ImageBrowserView() {
         this.getStyleClass().add("image-browser-view");
 
@@ -109,28 +109,34 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
 
         this.folderNav = new FolderNav(new FolderNav.FolderNavListener() {
             @Override public void onFolderSelected(File folder) { viewModel.loadFolder(folder); }
-            @Override public void onSearch(String query) { viewModel.search(query); }
+            @Override public void onCollectionSelected(String name) { viewModel.loadCollection(name); }
+            @Override public void onCreateCollection(String name) { viewModel.createNewCollection(name); }
+            @Override public void onDeleteCollection(String name) { viewModel.deleteCollection(name); }
+            @Override public void onAddFilesToCollection(String name, List<File> files) { viewModel.addFilesToCollection(name, files); }
+            @Override public void onSearch(String query) { searchField.setText(query); viewModel.performSearch(); }
             @Override public void onShowStarred() { viewModel.loadStarred(); }
-            @Override public void onPinFolder(File folder) {
-                viewModel.pinFolder(folder);
-                refreshSidebar();
-            }
-            @Override public void onUnpinFolder(File folder) {
-                viewModel.unpinFolder(folder);
-                refreshSidebar();
-            }
-            @Override public void onFilesMoved() { }
+            @Override public void onPinFolder(File folder) { viewModel.pinFolder(folder); refreshSidebar(); }
+            @Override public void onUnpinFolder(File folder) { viewModel.unpinFolder(folder); refreshSidebar(); }
+            @Override public void onFilesMoved() {}
         });
 
         this.setLeft(folderNav);
+        setupFilterBar();
         setupCenterLayout();
         setupInputHandlers();
         setViewMode(ViewMode.BROWSER);
     }
 
+    // --- Initialization & Binding ---
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
         refreshSidebar();
+
+        searchField.textProperty().bindBidirectional(viewModel.searchQueryProperty());
+        modelFilter.setItems(viewModel.availableModelsProperty());
+        modelFilter.valueProperty().bindBidirectional(viewModel.selectedModelProperty());
+        samplerFilter.setItems(viewModel.availableSamplersProperty());
+        samplerFilter.valueProperty().bindBidirectional(viewModel.selectedSamplerProperty());
 
         viewModel.currentFilesProperty().addListener((ListChangeListener<File>) c -> {
             this.currentFiles = new ArrayList<>(viewModel.currentFilesProperty());
@@ -141,6 +147,11 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         viewModel.activeTagsProperty().addListener((obs, old, tags) -> updateSidebar());
         viewModel.activeStarredProperty().addListener((obs, old, isStarred) -> updateSidebar());
 
+        folderNav.setCollections(viewModel.getCollectionList());
+        viewModel.getCollectionList().addListener((ListChangeListener<String>) c -> {
+            folderNav.setCollections(viewModel.getCollectionList());
+        });
+
         Platform.runLater(() -> {
             File lastFolder = viewModel.getLastFolder();
             if (lastFolder != null && lastFolder.exists()) {
@@ -149,7 +160,37 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         });
     }
 
-    // --- UI Layout Construction ---
+    // --- Layout Setup ---
+    private void setupFilterBar() {
+        filterBar = new HBox(10);
+        filterBar.setPadding(new Insets(8, 12, 8, 12));
+        filterBar.setAlignment(Pos.CENTER_LEFT);
+        filterBar.getStyleClass().add("filter-bar");
+        filterBar.setStyle("-fx-background-color: #2c2c2c; -fx-border-color: #3d3d3d; -fx-border-width: 0 0 1 0;");
+
+        searchField.setPromptText("Search prompts...");
+        searchField.setPrefWidth(250);
+        modelFilter.setPromptText("Model");
+        modelFilter.setPrefWidth(150);
+        samplerFilter.setPromptText("Sampler");
+        samplerFilter.setPrefWidth(150);
+
+        Button searchBtn = new Button("Search");
+        searchBtn.getStyleClass().add("accent-button");
+        searchBtn.setOnAction(e -> viewModel.performSearch());
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        filterBar.getChildren().addAll(
+                new Label("Search:"), searchField,
+                new Label("Model:"), modelFilter,
+                new Label("Sampler:"), samplerFilter,
+                searchBtn,
+                spacer
+        );
+        this.setTop(filterBar);
+    }
 
     private void setupCenterLayout() {
         centerContainer = new StackPane();
@@ -213,8 +254,7 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         overlayContainer.getChildren().add(box);
     }
 
-    // --- View Management ---
-
+    // --- View Mode Logic ---
     public void setViewMode(ViewMode mode) {
         this.currentViewMode = mode;
         centerContainer.getChildren().clear();
@@ -222,6 +262,7 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         if (mode == ViewMode.GALLERY) gridView.setItems(FXCollections.observableArrayList(currentFiles));
         if (mode == ViewMode.LIST) fileListView.getItems().setAll(currentFiles);
         centerContainer.getChildren().addAll(contentNode, overlayContainer);
+
         if (mode == ViewMode.BROWSER) {
             this.setBottom(filmstripView);
             this.setRight(metadataSidebar);
@@ -230,23 +271,52 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
             mainImageView.setImage(null);
             if (currentLoadingTask != null) currentLoadingTask.cancel(true);
             this.setBottom(null);
-            this.setRight(null);
+            this.setRight(metadataSidebar);
         }
     }
 
     private void refreshCurrentView() {
         currentIndex = 0;
+        selectedFiles.clear();
+        lastAnchorFile = null;
+
         filmstripView.setFiles(currentFiles);
         if (gridView != null) gridView.setItems(FXCollections.observableArrayList(currentFiles));
         if (fileListView != null) fileListView.getItems().setAll(currentFiles);
-        if (!currentFiles.isEmpty() && currentViewMode == ViewMode.BROWSER) {
-            loadImage(0);
+
+        if (!currentFiles.isEmpty()) {
+            handleSelectionClick(currentFiles.get(0), false, false);
+            if (currentViewMode == ViewMode.BROWSER) loadImage(0);
         } else {
             mainImageView.setImage(null);
+            viewModel.updateSelection(Collections.emptyList());
         }
     }
 
-    // --- Image Loading & Operations ---
+    // --- Selection & Navigation ---
+    private void handleSelectionClick(File file, boolean isShift, boolean isCtrl) {
+        if (file == null) return;
+
+        if (isShift && lastAnchorFile != null && currentFiles.contains(lastAnchorFile)) {
+            int start = currentFiles.indexOf(lastAnchorFile);
+            int end = currentFiles.indexOf(file);
+            int min = Math.min(start, end);
+            int max = Math.max(start, end);
+            selectedFiles.clear();
+            selectedFiles.addAll(currentFiles.subList(min, max + 1));
+        } else if (isCtrl) {
+            if (selectedFiles.contains(file)) selectedFiles.remove(file);
+            else selectedFiles.add(file);
+            lastAnchorFile = file;
+        } else {
+            selectedFiles.clear();
+            selectedFiles.add(file);
+            lastAnchorFile = file;
+        }
+
+        viewModel.updateSelection(new ArrayList<>(selectedFiles));
+        currentIndex = currentFiles.indexOf(file);
+    }
 
     private void loadImage(int index) {
         if (currentLoadingTask != null && !currentLoadingTask.isDone()) {
@@ -261,7 +331,10 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         File file = currentFiles.get(index);
         this.currentIndex = index;
 
-        viewModel.selectImage(file);
+        if (currentViewMode == ViewMode.BROWSER && selectedFiles.size() <= 1) {
+            handleSelectionClick(file, false, false);
+        }
+
         resetZoom();
         mainImageView.setImage(null);
 
@@ -280,16 +353,26 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         Platform.runLater(() -> centerContainer.requestFocus());
     }
 
+    private void navigate(int dir) {
+        if (currentFiles.isEmpty()) return;
+        int newIndex = (currentIndex + dir) % currentFiles.size();
+        if (newIndex < 0) newIndex += currentFiles.size();
+        loadImage(newIndex);
+    }
+
+    // --- Action Handlers ---
     private void deleteCurrentImage() {
-        File f = getCurrentFile();
-        if (f == null) return;
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "Delete " + f.getName() + "?", ButtonType.YES, ButtonType.NO);
+        List<File> targets = new ArrayList<>(selectedFiles);
+        if (targets.isEmpty() && getCurrentFile() != null) targets.add(getCurrentFile());
+        if (targets.isEmpty()) return;
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "Delete " + targets.size() + " files?", ButtonType.YES, ButtonType.NO);
         alert.showAndWait().ifPresent(response -> {
             if (response == ButtonType.YES) {
-                if (f.delete()) {
-                    currentFiles.remove(currentIndex);
-                    refreshCurrentView();
-                }
+                for(File f : targets) f.delete();
+                currentFiles.removeAll(targets);
+                selectedFiles.clear();
+                refreshCurrentView();
             }
         });
     }
@@ -322,8 +405,6 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
         fsStage.show();
     }
 
-    // --- Input & Event Handling ---
-
     private void setupInputHandlers() {
         this.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
             if (e.getTarget() instanceof TextInputControl) return;
@@ -333,6 +414,7 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
                 case DELETE: deleteCurrentImage(); e.consume(); break;
                 case F: showFullScreen(getCurrentFile()); e.consume(); break;
                 case ESCAPE: if (overlayContainer.isVisible()) overlayContainer.setVisible(false); e.consume(); break;
+                case S: viewModel.toggleStar(); e.consume(); break;
             }
         });
     }
@@ -343,80 +425,43 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
                 e.consume();
                 double zoomFactor = (e.getDeltaY() > 0) ? 1.1 : 0.9;
                 double newScale = Math.max(0.1, Math.min(20.0, scale.getX() * zoomFactor));
-                try {
-                    Point2D pivotInImage = view.sceneToLocal(e.getSceneX(), e.getSceneY());
-                    scale.setX(newScale);
-                    scale.setY(newScale);
-                    Point2D newPivotScene = view.localToScene(pivotInImage);
-                    translate.setX(translate.getX() + (e.getSceneX() - newPivotScene.getX()));
-                    translate.setY(translate.getY() + (e.getSceneY() - newPivotScene.getY()));
-                } catch (Exception ex) {
-                    scale.setX(newScale);
-                    scale.setY(newScale);
-                }
+                scale.setX(newScale); scale.setY(newScale);
             }
         });
-
         class DragState { double startX, startY, transX, transY; boolean isDragging; }
         final DragState state = new DragState();
-
         container.setOnMousePressed(e -> {
             if (e.getButton() == MouseButton.MIDDLE || e.getButton() == MouseButton.PRIMARY) {
-                state.startX = e.getSceneX();
-                state.startY = e.getSceneY();
-                state.transX = translate.getX();
-                state.transY = translate.getY();
+                state.startX = e.getSceneX(); state.startY = e.getSceneY();
+                state.transX = translate.getX(); state.transY = translate.getY();
                 state.isDragging = false;
             }
         });
-
         container.setOnMouseDragged(e -> {
             if (e.getButton() == MouseButton.MIDDLE || (e.getButton() == MouseButton.PRIMARY && scale.getX() > 1.0)) {
                 if (Math.abs(e.getSceneX() - state.startX) > 3 || Math.abs(e.getSceneY() - state.startY) > 3) {
-                    state.isDragging = true;
-                    container.setCursor(javafx.scene.Cursor.MOVE);
+                    state.isDragging = true; container.setCursor(javafx.scene.Cursor.MOVE);
                     translate.setX(state.transX + (e.getSceneX() - state.startX));
                     translate.setY(state.transY + (e.getSceneY() - state.startY));
                 }
             }
         });
-
         container.setOnMouseReleased(e -> {
             container.setCursor(javafx.scene.Cursor.DEFAULT);
-            if (!state.isDragging && e.getButton() == MouseButton.PRIMARY && clickAction != null) {
-                clickAction.run();
-            }
+            if (!state.isDragging && e.getButton() == MouseButton.PRIMARY && clickAction != null) clickAction.run();
         });
-
-        container.setOnMouseClicked(e -> {
-            if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
-                resetZoom();
-            }
-        });
+        container.setOnMouseClicked(e -> { if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) resetZoom(); });
     }
 
-    // --- Helpers & Internal Logic ---
-
+    // --- Helpers & Accessors ---
     private void updateSidebar() {
         File f = getCurrentFile();
         if (f == null) return;
-        metadataSidebar.updateData(
-                f,
-                viewModel.activeMetadataProperty().get(),
-                viewModel.activeTagsProperty().get(),
-                viewModel.activeStarredProperty().get()
-        );
+        metadataSidebar.updateData(f, viewModel.activeMetadataProperty().get(), viewModel.activeTagsProperty().get(), viewModel.activeStarredProperty().get());
     }
 
     private void refreshSidebar() {
         folderNav.setPinnedFolders(viewModel.getPinnedFolders());
-    }
-
-    private void navigate(int dir) {
-        if (currentFiles.isEmpty()) return;
-        int newIndex = (currentIndex + dir) % currentFiles.size();
-        if (newIndex < 0) newIndex += currentFiles.size();
-        loadImage(newIndex);
     }
 
     private File getCurrentFile() {
@@ -425,10 +470,7 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
     }
 
     private void resetZoom() {
-        zoomScale.setX(1);
-        zoomScale.setY(1);
-        zoomTranslate.setX(0);
-        zoomTranslate.setY(0);
+        zoomScale.setX(1); zoomScale.setY(1); zoomTranslate.setX(0); zoomTranslate.setY(0);
     }
 
     private Image loadRobustImage(File file, double width) {
@@ -447,7 +489,6 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
     public FolderNav getFolderNav() { return folderNav; }
 
     // --- Inner Classes ---
-
     private class ImageGridCell extends GridCell<File> {
         private final StackPane container;
         private final ImageView imageView;
@@ -460,34 +501,38 @@ public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowse
             container = new StackPane(imageView);
             container.setPrefSize(160, 160);
             container.getStyleClass().add("grid-cell");
-            container.setStyle("-fx-border-color: #444; -fx-border-width: 1;");
             setGraphic(container);
             container.setOnMouseClicked(e -> {
                 if (getItem() == null) return;
-                currentIndex = getIndex();
-                if (e.getClickCount() == 2) setViewMode(ViewMode.BROWSER);
+                handleSelectionClick(getItem(), e.isShiftDown(), e.isShortcutDown());
+                if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) setViewMode(ViewMode.BROWSER);
+                updateStyle();
             });
+        }
+
+        private void updateStyle() {
+            if (getItem() != null && selectedFiles.contains(getItem())) {
+                container.setStyle("-fx-border-color: #0078d7; -fx-border-width: 3; -fx-background-color: rgba(0, 120, 215, 0.2);");
+            } else {
+                container.setStyle("-fx-border-color: #444; -fx-border-width: 1; -fx-background-color: transparent;");
+            }
         }
 
         @Override
         protected void updateItem(File item, boolean empty) {
             super.updateItem(item, empty);
             if (empty || item == null) {
-                imageView.setImage(null);
-                container.setVisible(false);
+                imageView.setImage(null); container.setVisible(false);
             } else {
-                container.setVisible(true);
+                container.setVisible(true); updateStyle();
                 Image cached = ThumbnailCache.get(item.getAbsolutePath());
-                if (cached != null) {
-                    imageView.setImage(cached);
-                } else {
+                if (cached != null) imageView.setImage(cached);
+                else {
                     imageView.setImage(null);
                     thumbnailPool.submit(() -> {
                         Image img = loadRobustImage(item, 200);
                         if (img != null) ThumbnailCache.put(item.getAbsolutePath(), img);
-                        Platform.runLater(() -> {
-                            if (Objects.equals(item, getItem())) imageView.setImage(img);
-                        });
+                        Platform.runLater(() -> { if (Objects.equals(item, getItem())) imageView.setImage(img); });
                     });
                 }
             }
