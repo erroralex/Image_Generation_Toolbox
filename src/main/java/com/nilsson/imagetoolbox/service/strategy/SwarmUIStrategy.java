@@ -7,11 +7,24 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+/**
+ * Metadata parsing strategy for SwarmUI-generated JSON.
+ *
+ * <p>This strategy extracts model information, prompts, and generation
+ * parameters from SwarmUI metadata, supporting both textual and numeric
+ * value formats.</p>
+ *
+ * <p>The implementation is designed to coexist with other strategies
+ * and avoids overwriting higher-priority fields when already present.</p>
+ */
 public class SwarmUIStrategy implements MetadataStrategy {
 
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    // Entry point called by TextParamsParser
+    /* ============================================================
+       Public API
+       ============================================================ */
+
     public Map<String, String> parse(String text) {
         Map<String, String> results = new HashMap<>();
         try {
@@ -27,12 +40,15 @@ public class SwarmUIStrategy implements MetadataStrategy {
         return results;
     }
 
+    /* ============================================================
+       MetadataStrategy Implementation
+       ============================================================ */
+
     @Override
     public void extract(String key, JsonNode value, JsonNode parentNode, Map<String, String> results) {
         if (!value.isTextual() && !value.isNumber()) return;
         String text = value.asText();
 
-        // SwarmUI Model & Sampler
         if (key.equals("model") && text.length() > 4 && !text.contains("{")) {
             results.put("Model", text);
         }
@@ -40,7 +56,6 @@ public class SwarmUIStrategy implements MetadataStrategy {
             results.put("Sampler", text);
         }
 
-        // SwarmUI Prompts
         else if (key.equals("prompt") && text.length() > 5) {
             if (!results.containsKey("Prompt")) {
                 results.put("Prompt", text);
@@ -50,7 +65,6 @@ public class SwarmUIStrategy implements MetadataStrategy {
             results.put("Negative", text);
         }
 
-        // SwarmUI Parameters
         else if (key.equals("cfgscale")) {
             results.put("CFG", text);
         }

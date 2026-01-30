@@ -1,4 +1,4 @@
-package com.nilsson.imagetoolbox.ui;
+package com.nilsson.imagetoolbox.ui.components;
 
 import javafx.animation.KeyFrame;
 import javafx.animation.KeyValue;
@@ -20,7 +20,16 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
+/**
+ * Sidebar menu component with a collapsible/expandable layout, navigation items,
+ * and active view highlighting. It exposes a callback for reacting to view
+ * changes initiated by user interaction with the menu.
+ */
 public class SidebarMenu extends VBox {
+
+    // ==================================================================================
+    // State
+    // ==================================================================================
 
     private boolean isExpanded = false;
     private final double COLLAPSED_WIDTH = 60;
@@ -30,6 +39,10 @@ public class SidebarMenu extends VBox {
     private final Button toggleBtn;
     private final Map<String, Button> viewButtons = new HashMap<>();
 
+    // ==================================================================================
+    // Construction
+    // ==================================================================================
+
     public SidebarMenu(Consumer<String> onViewChange) {
         this.onViewChange = onViewChange;
 
@@ -38,7 +51,6 @@ public class SidebarMenu extends VBox {
         this.setMinWidth(COLLAPSED_WIDTH);
         this.setMaxWidth(COLLAPSED_WIDTH);
 
-        // 1. Top Toggle Area
         HBox topBar = new HBox();
         topBar.setAlignment(Pos.CENTER_LEFT);
         topBar.setPadding(new javafx.geometry.Insets(10));
@@ -59,7 +71,6 @@ public class SidebarMenu extends VBox {
 
         topBar.getChildren().addAll(menuLabel, spacer, toggleBtn);
 
-        // 2. Nav Items
         navItems = new VBox(5);
         navItems.setPadding(new javafx.geometry.Insets(20, 0, 0, 0));
         navItems.getChildren().addAll(
@@ -85,6 +96,10 @@ public class SidebarMenu extends VBox {
             });
         });
     }
+
+    // ==================================================================================
+    // Nav item creation
+    // ==================================================================================
 
     private Button createNavItem(String text, FontAwesome icon, String viewId) {
         Button btn = new Button();
@@ -116,6 +131,10 @@ public class SidebarMenu extends VBox {
         viewButtons.put(viewId, btn);
         return btn;
     }
+
+    // ==================================================================================
+    // Public API
+    // ==================================================================================
 
     public void setActive(String viewId) {
         viewButtons.values().forEach(b -> b.getStyleClass().remove("sidebar-btn-active"));
