@@ -1,60 +1,49 @@
 package com.nilsson.imagetoolbox.data;
 
+import javafx.concurrent.Task;
+
 import java.io.File;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.*;
 import java.util.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 /**
- Central manager for all persistent user data, backed by SQLite.
-
- <p>This class handles storage and retrieval of starred files, tags, pinned folders,
- application settings, and cached metadata. All data is persisted immediately
- to the local database, ensuring durability and low memory overhead.</p>
-
- <p>Thread safety is managed via the underlying DatabaseService connection pooling (WAL mode)
- and synchronized blocks where necessary to prevent logical race conditions.</p>
+ Manages persistent user data, including pinned folders, image starring,
+ tagging, settings, and metadata caching.
+ * This class provides thread-safe access to the underlying DatabaseService
+ using a ReadWriteLock and supports asynchronous operations for heavy tasks
+ like paginated file searches.
  */
 public class UserDataManager {
-
-    // ==================================================================================
-    // STATE
-    // ==================================================================================
 
     private final DatabaseService db;
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Lock readLock = rwLock.readLock();
     private final Lock writeLock = rwLock.writeLock();
 
-    // ==================================================================================
-    // CONSTRUCTION
-    // ==================================================================================
-
-    public UserDataManager() {
-        this.db = new DatabaseService();
+    @javax.inject.Inject
+    public UserDataManager(DatabaseService db) {
+        this.db = db;
     }
 
-    // ==================================================================================
-    // PINNED FOLDERS
-    // ==================================================================================
+    public void shutdown() {
+        db.shutdown();
+    }
+
+    // --- Pinned Folders ---
 
     public List<File> getPinnedFolders() {
         readLock.lock();
         try {
             List<File> result = new ArrayList<>();
             String sql = "SELECT path FROM pinned_folders ORDER BY path ASC";
-
             try (Connection conn = db.connect();
                  Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery(sql)) {
-
                 while (rs.next()) {
                     File f = new File(rs.getString("path"));
                     if (f.exists()) result.add(f);
@@ -73,7 +62,6 @@ public class UserDataManager {
         writeLock.lock();
         try {
             String sql = "INSERT OR IGNORE INTO pinned_folders(path) VALUES(?)";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, folder.getAbsolutePath());
@@ -91,7 +79,6 @@ public class UserDataManager {
         writeLock.lock();
         try {
             String sql = "DELETE FROM pinned_folders WHERE path = ?";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, folder.getAbsolutePath());
@@ -109,7 +96,6 @@ public class UserDataManager {
         readLock.lock();
         try {
             String sql = "SELECT 1 FROM pinned_folders WHERE path = ?";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, folder.getAbsolutePath());
@@ -124,9 +110,82 @@ public class UserDataManager {
         }
     }
 
-    // ==================================================================================
-    // STARS / FAVORITES
-    // ==================================================================================
+    // --- Async Search & Pagination ---
+
+    /**
+     Searches for files matching the query in Tags or Metadata.
+     Runs asynchronously on a background thread.
+
+     @param query  The search string.
+     @param limit  Max results to return.
+     @param offset Result offset.
+
+     @return A JavaFX Task containing the results.
+     */
+    public Task<List<File>> findFilesAsync(String query, int limit, int offset) {
+        return new Task<>() {
+            @Override
+            protected List<File> call() throws Exception {
+                if (query == null || query.isBlank()) return new ArrayList<>();
+
+                readLock.lock();
+                try {
+                    List<File> results = new ArrayList<>();
+                    String likeQuery = "%" + query.trim() + "%";
+
+                    String sql = """
+                                SELECT file_path FROM (
+                                    SELECT i.file_path 
+                                    FROM images i
+                                    JOIN tags t ON t.image_id = i.id
+                                    WHERE t.tag_text LIKE ?
+                            
+                                    UNION
+                            
+                                    SELECT i.file_path 
+                                    FROM images i
+                                    JOIN metadata m ON m.image_id = i.id
+                                    WHERE m.value_text LIKE ?
+                                )
+                                LIMIT ? OFFSET ?
+                            """;
+
+                    try (Connection conn = db.connect();
+                         PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+                        pstmt.setString(1, likeQuery);
+                        pstmt.setString(2, likeQuery);
+                        pstmt.setInt(3, limit);
+                        pstmt.setInt(4, offset);
+
+                        ResultSet rs = pstmt.executeQuery();
+                        while (rs.next()) {
+                            File f = new File(rs.getString("file_path"));
+                            if (f.exists()) {
+                                results.add(f);
+                            }
+                        }
+                    }
+                    return results;
+                } finally {
+                    readLock.unlock();
+                }
+            }
+        };
+    }
+
+    public List<File> findFiles(String query) {
+        try {
+            Task<List<File>> task = findFilesAsync(query, 1000, 0);
+            task.run();
+            return task.get();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    // --- Stars / Favorites ---
 
     public void addStar(File file) {
         if (file == null) return;
@@ -134,7 +193,6 @@ public class UserDataManager {
         try {
             int imageId = db.getOrCreateImageId(file.getAbsolutePath());
             String sql = "UPDATE images SET is_starred = 1 WHERE id = ?";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setInt(1, imageId);
@@ -152,7 +210,6 @@ public class UserDataManager {
         writeLock.lock();
         try {
             String sql = "UPDATE images SET is_starred = 0 WHERE file_path = ?";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, file.getAbsolutePath());
@@ -170,7 +227,6 @@ public class UserDataManager {
         readLock.lock();
         try {
             String sql = "SELECT is_starred FROM images WHERE file_path = ?";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, file.getAbsolutePath());
@@ -200,11 +256,9 @@ public class UserDataManager {
         try {
             List<File> result = new ArrayList<>();
             String sql = "SELECT file_path FROM images WHERE is_starred = 1";
-
             try (Connection conn = db.connect();
                  Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery(sql)) {
-
                 while (rs.next()) {
                     File f = new File(rs.getString("file_path"));
                     if (f.exists()) result.add(f);
@@ -218,9 +272,7 @@ public class UserDataManager {
         }
     }
 
-    // ==================================================================================
-    // TAGS
-    // ==================================================================================
+    // --- Tags ---
 
     public void addTag(File file, String tag) {
         if (file == null || tag == null || tag.isBlank()) return;
@@ -228,7 +280,6 @@ public class UserDataManager {
         try {
             int imageId = db.getOrCreateImageId(file.getAbsolutePath());
             String sql = "INSERT OR IGNORE INTO tags(image_id, tag_text) VALUES(?, ?)";
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setInt(1, imageId);
@@ -251,7 +302,6 @@ public class UserDataManager {
                         WHERE tag_text = ? 
                         AND image_id = (SELECT id FROM images WHERE file_path = ?)
                     """;
-
             try (Connection conn = db.connect();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, tag);
@@ -293,61 +343,11 @@ public class UserDataManager {
         }
     }
 
-    // ==================================================================================
-    // SEARCH
-    // ==================================================================================
-
-    public List<File> findFiles(String query) {
-        if (query == null || query.isBlank()) return new ArrayList<>();
-        readLock.lock();
-        try {
-            Set<File> results = new HashSet<>();
-            String likeQuery = "%" + query.trim() + "%";
-
-            // 1. Search Tags
-            String tagSql = """
-                        SELECT file_path FROM images i
-                        JOIN tags t ON t.image_id = i.id
-                        WHERE t.tag_text LIKE ?
-                    """;
-
-            // 2. Search Metadata
-            String metaSql = """
-                        SELECT file_path FROM images i
-                        JOIN metadata m ON m.image_id = i.id
-                        WHERE m.value_text LIKE ?
-                    """;
-
-            try (Connection conn = db.connect()) {
-                // Check tags
-                try (PreparedStatement pstmt = conn.prepareStatement(tagSql)) {
-                    pstmt.setString(1, likeQuery);
-                    ResultSet rs = pstmt.executeQuery();
-                    while (rs.next()) results.add(new File(rs.getString("file_path")));
-                }
-                // Check metadata
-                try (PreparedStatement pstmt = conn.prepareStatement(metaSql)) {
-                    pstmt.setString(1, likeQuery);
-                    ResultSet rs = pstmt.executeQuery();
-                    while (rs.next()) results.add(new File(rs.getString("file_path")));
-                }
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-
-            return results.stream().filter(File::exists).collect(Collectors.toList());
-        } finally {
-            readLock.unlock();
-        }
-    }
-
     public List<File> findFilesByTag(String query) {
         return findFiles(query);
     }
 
-    // ==================================================================================
-    // APPLICATION SETTINGS (Key-Value Store)
-    // ==================================================================================
+    // --- Settings ---
 
     public String getSetting(String key, String defaultValue) {
         readLock.lock();
@@ -359,7 +359,6 @@ public class UserDataManager {
                 ResultSet rs = pstmt.executeQuery();
                 if (rs.next()) return rs.getString("value");
             } catch (SQLException e) {
-                // Table might not exist yet if not added to DatabaseService, fail gracefully
             }
             return defaultValue;
         } finally {
@@ -385,29 +384,40 @@ public class UserDataManager {
     }
 
     public File getLastFolder() {
-        String path = getSetting("last_folder", null);
-        if (path != null) {
-            File f = new File(path);
+        String pathStr = getSetting("last_folder", null);
+        if (pathStr != null) {
+            Path path = Paths.get(pathStr);
+            File f = path.isAbsolute() ? path.toFile() : Paths.get("").toAbsolutePath().resolve(path).toFile();
             if (f.exists() && f.isDirectory()) return f;
         }
         return null;
     }
 
+    /**
+     * Saves the last opened folder. If the folder is a sub-directory of the
+     * application, it is saved as a relative path for portability.
+     */
     public void setLastFolder(File folder) {
         if (folder != null && folder.isDirectory()) {
-            setSetting("last_folder", folder.getAbsolutePath());
+            Path appPath = Paths.get("").toAbsolutePath();
+            Path folderPath = folder.toPath().toAbsolutePath();
+
+            String pathSave;
+            if (folderPath.startsWith(appPath)) {
+                pathSave = appPath.relativize(folderPath).toString();
+            } else {
+                pathSave = folderPath.toString();
+            }
+            setSetting("last_folder", pathSave);
         }
     }
 
-    // ==================================================================================
-    // METADATA CACHE
-    // ==================================================================================
+    // --- Metadata Cache ---
 
     public boolean hasCachedMetadata(File file) {
         if (file == null) return false;
         readLock.lock();
         try {
-            // If we have at least one metadata entry for this file
             String sql = """
                         SELECT 1 FROM metadata m
                         JOIN images i ON i.id = m.image_id
@@ -435,7 +445,7 @@ public class UserDataManager {
             String insertSql = "INSERT OR REPLACE INTO metadata(image_id, key_text, value_text) VALUES(?, ?, ?)";
 
             try (Connection conn = db.connect()) {
-                conn.setAutoCommit(false); // Batch insert
+                conn.setAutoCommit(false);
                 try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                     for (Map.Entry<String, String> entry : meta.entrySet()) {
                         pstmt.setInt(1, imageId);

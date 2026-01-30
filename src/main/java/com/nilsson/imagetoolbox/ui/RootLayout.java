@@ -1,130 +1,121 @@
 package com.nilsson.imagetoolbox.ui;
 
-import com.nilsson.imagetoolbox.data.UserDataManager;
 import com.nilsson.imagetoolbox.ui.components.CustomTitleBar;
 import com.nilsson.imagetoolbox.ui.components.SidebarMenu;
-import com.nilsson.imagetoolbox.ui.controllers.ImageBrowserController;
-import com.nilsson.imagetoolbox.ui.controllers.SpeedSorterController;
+import com.nilsson.imagetoolbox.ui.viewmodels.ImageBrowserViewModel;
+import com.nilsson.imagetoolbox.ui.viewmodels.MainViewModel;
+import com.nilsson.imagetoolbox.ui.viewmodels.ScrubViewModel;
+import com.nilsson.imagetoolbox.ui.viewmodels.SpeedSorterViewModel;
 import com.nilsson.imagetoolbox.ui.views.ImageBrowserView;
 import com.nilsson.imagetoolbox.ui.views.ScrubView;
 import com.nilsson.imagetoolbox.ui.views.SpeedSorterView;
+import de.saxsys.mvvmfx.FluentViewLoader;
+import de.saxsys.mvvmfx.InjectViewModel;
+import de.saxsys.mvvmfx.JavaView;
+import de.saxsys.mvvmfx.ViewTuple;
+import javafx.application.Platform;
+import javafx.fxml.Initializable;
+import javafx.scene.Parent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.StackPane;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 
-import java.io.File;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.ResourceBundle;
 
 /**
- * Root layout container for the application UI.
- *
- * <p>This class serves as the top-level layout manager, coordinating
- * navigation and view switching between the major application views.
- * All views and controllers are provided via dependency injection.</p>
+ * The main container for the application UI.
+ * This class coordinates the top-level layout, including the custom title bar,
+ * sidebar navigation, and the dynamic content area where different views are preloaded
+ * and swapped via the MainViewModel.
  */
-public class RootLayout extends BorderPane {
+public class RootLayout extends StackPane implements JavaView<MainViewModel>, Initializable {
 
-    /* ============================================================
-       Core UI Components
-       ============================================================ */
+    // --- State and ViewModels ---
+    @InjectViewModel
+    private MainViewModel viewModel;
 
-    private final CustomTitleBar titleBar;
-    private final SidebarMenu sidebar;
-    private final StackPane contentArea;
+    private ImageBrowserViewModel browserVM;
+    private final Map<String, Parent> viewCache = new HashMap<>();
 
-    /* ============================================================
-       Application State
-       ============================================================ */
+    // --- UI Components ---
+    private CustomTitleBar titleBar;
+    private final BorderPane contentPane = new BorderPane();
 
-    private final UserDataManager dataManager;
+    // --- Constructor & Styling ---
+    public RootLayout() {
+        this.getStyleClass().add("root-layout");
+        this.setStyle("-fx-background-color: transparent;");
 
-    /* ============================================================
-       Views
-       ============================================================ */
+        contentPane.setStyle("-fx-background-color: #1e1e1e; -fx-background-radius: 10; -fx-border-radius: 10; -fx-border-color: #333; -fx-border-width: 1;");
 
-    private final ImageBrowserView imageBrowserView;
-    private final SpeedSorterView speedSorterView;
-    private final ScrubView scrubView;
+        Rectangle clip = new Rectangle();
+        clip.widthProperty().bind(this.widthProperty());
+        clip.heightProperty().bind(this.heightProperty());
+        clip.setArcWidth(20);
+        clip.setArcHeight(20);
+        this.setClip(clip);
 
-    /* ============================================================
-       Controllers
-       ============================================================ */
-
-    private final ImageBrowserController browserController;
-    private final SpeedSorterController speedSorterController;
-
-    /* ============================================================
-       Construction
-       ============================================================ */
-
-    public RootLayout(Stage stage,
-                      ImageBrowserView imageBrowserView,
-                      UserDataManager dataManager,
-                      ImageBrowserController browserController,
-                      SpeedSorterController speedSorterController,
-                      SpeedSorterView speedSorterView,
-                      ScrubView scrubView) {
-
-        this.imageBrowserView = imageBrowserView;
-        this.dataManager = dataManager;
-        this.browserController = browserController;
-        this.speedSorterController = speedSorterController;
-        this.speedSorterView = speedSorterView;
-        this.scrubView = scrubView;
-
-        this.sidebar = new SidebarMenu(this::switchView);
-        this.setLeft(sidebar);
-
-        this.titleBar = new CustomTitleBar(stage, () -> {
-            if (sidebar != null) sidebar.toggle();
-        });
-        this.setTop(titleBar);
-
-        this.contentArea = new StackPane();
-        this.contentArea.setStyle("-fx-background-color: -app-bg-deepest;");
-        this.setCenter(contentArea);
-
-        this.imageBrowserView.setMinSize(0, 0);
-        this.imageBrowserView.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
-
-        File lastFolder = dataManager.getLastFolder();
-        if (lastFolder != null && lastFolder.exists()) {
-            browserController.onFolderSelected(lastFolder);
-            imageBrowserView.getFolderNav().selectPath(lastFolder);
-        }
-
-        switchView("VIEW_TREE");
+        this.getChildren().add(contentPane);
     }
 
-    /* ============================================================
-       View Navigation
-       ============================================================ */
+    // --- Initialization & Lifecycle ---
+    @Override
+    public void initialize(URL url, ResourceBundle resourceBundle) {
+        loadViews();
+
+        SidebarMenu sidebar = new SidebarMenu(viewId -> viewModel.navigate(viewId));
+        contentPane.setLeft(sidebar);
+
+        viewModel.activeViewProperty().addListener((obs, oldVal, newVal) -> {
+            switchView(newVal);
+            sidebar.setActive(newVal);
+        });
+
+        switchView(MainViewModel.VIEW_LIBRARY);
+        sidebar.setActive(MainViewModel.VIEW_LIBRARY);
+    }
+
+    /**
+     * Must be called by ViewFactory after instantiation to setup the Window Controls
+     */
+    public void setStage(Stage stage) {
+        this.titleBar = new CustomTitleBar(stage, () -> {
+            Platform.exit();
+            System.exit(0);
+        });
+        contentPane.setTop(titleBar);
+    }
+
+    // --- View Management ---
+    private void loadViews() {
+        // Library
+        ViewTuple<ImageBrowserView, ImageBrowserViewModel> browserTuple = FluentViewLoader.javaView(ImageBrowserView.class).load();
+        viewCache.put(MainViewModel.VIEW_LIBRARY, browserTuple.getView());
+        this.browserVM = browserTuple.getViewModel();
+
+        // Speed Sorter
+        ViewTuple<SpeedSorterView, SpeedSorterViewModel> sorterTuple = FluentViewLoader.javaView(SpeedSorterView.class).load();
+        viewCache.put(MainViewModel.VIEW_SORTER, sorterTuple.getView());
+
+        // Scrubber
+        ViewTuple<ScrubView, ScrubViewModel> scrubTuple = FluentViewLoader.javaView(ScrubView.class).load();
+        viewCache.put(MainViewModel.VIEW_SCRUB, scrubTuple.getView());
+    }
 
     private void switchView(String viewId) {
-        sidebar.setActive(viewId);
-        contentArea.getChildren().clear();
-
-        switch (viewId) {
-            case "VIEW_TREE":
-                File last = dataManager.getLastFolder();
-                if (last != null && last.exists()) {
-                    browserController.onFolderSelected(last);
-                }
-                contentArea.getChildren().add(imageBrowserView);
-                break;
-
-            case "VIEW_SORTER":
-                contentArea.getChildren().add(speedSorterView);
-                break;
-
-            case "VIEW_SCRUB":
-                contentArea.getChildren().add(scrubView);
-                break;
-
-            case "VIEW_FAVORITES":
-                imageBrowserView.displayFiles(dataManager.getStarredFilesList());
-                imageBrowserView.setViewMode(ImageBrowserView.ViewMode.GALLERY);
-                contentArea.getChildren().add(imageBrowserView);
-                break;
+        if (MainViewModel.VIEW_FAVORITES.equals(viewId)) {
+            Parent libraryView = viewCache.get(MainViewModel.VIEW_LIBRARY);
+            contentPane.setCenter(libraryView);
+            browserVM.loadStarred();
+        } else {
+            Parent view = viewCache.get(viewId);
+            if (view != null) {
+                contentPane.setCenter(view);
+            }
         }
     }
 }

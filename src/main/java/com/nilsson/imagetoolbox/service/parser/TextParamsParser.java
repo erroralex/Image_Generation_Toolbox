@@ -10,28 +10,24 @@ import java.util.Map;
 
 /**
  * Parses text-based image generation metadata into structured key-value data.
- *
- * <p>Supports multiple metadata formats including ComfyUI (UI and API JSON),
- * Automatic1111-style parameter blocks, InvokeAI, NovelAI, and SwarmUI.
- * Parsing is delegated to format-specific strategies when applicable.</p>
+ * <p>
+ * This parser serves as a router that identifies the source format of the metadata
+ * (e.g., ComfyUI, Automatic1111, InvokeAI, NovelAI, or SwarmUI) and delegates the
+ * extraction logic to specific parsing strategies. It handles both raw string
+ * parameter blocks and complex JSON structures.
  */
 public class TextParamsParser {
 
-    // ==================================================================================
-    // CONFIGURATION
-    // ==================================================================================
-
+    // --- Configuration ---
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    // ==================================================================================
-    // PUBLIC API
-    // ==================================================================================
-
+    // --- Public API ---
     public static Map<String, String> parse(String text) {
         if (text == null || text.trim().isEmpty()) {
             return new HashMap<>();
         }
 
+        // Handle JSON-based formats (ComfyUI)
         if (text.trim().startsWith("{")) {
             try {
                 JsonNode root = mapper.readTree(text);
@@ -43,8 +39,7 @@ public class TextParamsParser {
                         processComfyNode(node, strategy, results);
                     }
                     strategy.extract("nodes_wrapper", root, null, results);
-                }
-                else {
+                } else {
                     boolean isApi = false;
                     Iterator<JsonNode> it = root.elements();
                     while (it.hasNext()) {
@@ -56,8 +51,7 @@ public class TextParamsParser {
 
                     if (isApi) {
                         strategy.extract("api_nodes", root, null, results);
-                    }
-                    else {
+                    } else {
                         Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
                         while (fields.hasNext()) {
                             Map.Entry<String, JsonNode> entry = fields.next();
@@ -71,9 +65,11 @@ public class TextParamsParser {
 
                 if (!results.isEmpty()) return results;
 
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
+        // Identify and delegate to specific string-based strategies
         if (text.contains("Steps: ") && text.contains("Sampler: ")) {
             return new CommonStrategy().parse(text);
         }
@@ -93,10 +89,7 @@ public class TextParamsParser {
         return new HashMap<>();
     }
 
-    // ==================================================================================
-    // INTERNAL HELPERS
-    // ==================================================================================
-
+    // --- Internal Helpers ---
     private static void processComfyNode(
             JsonNode node,
             ComfyUIStrategy strategy,

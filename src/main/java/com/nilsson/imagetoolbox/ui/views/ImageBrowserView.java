@@ -2,13 +2,17 @@ package com.nilsson.imagetoolbox.ui.views;
 
 import com.nilsson.imagetoolbox.ui.components.FolderNav;
 import com.nilsson.imagetoolbox.ui.components.ThumbnailCache;
+import com.nilsson.imagetoolbox.ui.viewmodels.ImageBrowserViewModel;
+import de.saxsys.mvvmfx.InjectViewModel;
+import de.saxsys.mvvmfx.JavaView;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.collections.ListChangeListener;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
-import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -23,7 +27,6 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.transform.Scale;
 import javafx.scene.transform.Translate;
 import javafx.stage.Modality;
-import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.controlsfx.control.GridCell;
@@ -31,33 +34,29 @@ import org.controlsfx.control.GridView;
 
 import javax.imageio.ImageIO;
 import java.io.File;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-public class ImageBrowserView extends BorderPane {
+/**
+ * The main browser view for the application, providing a multifaceted interface for
+ * exploring image directories.
+ * * Supports three view modes: Browser (Single image focus), Gallery (Grid), and List.
+ * Features advanced image interactions including asynchronous thumbnail loading,
+ * coordinate-aware zooming/panning, and full-screen presentation.
+ */
+public class ImageBrowserView extends BorderPane implements JavaView<ImageBrowserViewModel>, Initializable {
 
-    public interface ViewListener {
-        void onFolderSelected(File folder);
-        void onImageSelected(File file);
-        void onSearch(String query);
-        void onStarredRequested();
-        void onPinFolder(File folder);
-        void onUnpinFolder(File folder);
-        void onToggleStar(File file);
-        void onAddTag(File file, String tag);
-        void onRemoveTag(File file, String tag);
-        void onOpenRaw(File file);
-    }
-
+    // --- State & Configuration ---
     public enum ViewMode { BROWSER, GALLERY, LIST }
 
-    private ViewListener listener;
+    @InjectViewModel
+    private ImageBrowserViewModel viewModel;
 
     private final ExecutorService thumbnailPool = Executors.newFixedThreadPool(6, r -> {
         Thread t = new Thread(r);
@@ -67,15 +66,14 @@ public class ImageBrowserView extends BorderPane {
     });
 
     private Future<?> currentLoadingTask;
-
     private List<File> currentFiles = new ArrayList<>();
     private int currentIndex = -1;
     private ViewMode currentViewMode = ViewMode.BROWSER;
 
+    // --- Components ---
     private final FolderNav folderNav;
     private final MetadataSidebar metadataSidebar;
     private final FilmstripView filmstripView;
-
     private StackPane centerContainer;
     private ImageView mainImageView;
     private StackPane singleViewContainer;
@@ -84,17 +82,23 @@ public class ImageBrowserView extends BorderPane {
     private StackPane overlayContainer;
     private TextArea rawMetaTextArea;
 
+    // --- Transformation Properties ---
     private final Translate zoomTranslate = new Translate();
     private final Scale zoomScale = new Scale();
+
+    // --- Initialization ---
 
     public ImageBrowserView() {
         this.getStyleClass().add("image-browser-view");
 
         this.metadataSidebar = new MetadataSidebar(new MetadataSidebar.SidebarListener() {
-            @Override public void onToggleStar(File file) { if (listener != null) listener.onToggleStar(file); }
-            @Override public void onAddTag(File file, String tag) { if (listener != null) listener.onAddTag(file, tag); }
-            @Override public void onRemoveTag(File file, String tag) { if (listener != null) listener.onRemoveTag(file, tag); }
-            @Override public void onOpenRaw(File file) { if (listener != null) listener.onOpenRaw(file); }
+            @Override public void onToggleStar(File file) { viewModel.toggleStar(); }
+            @Override public void onAddTag(File file, String tag) { viewModel.addTag(tag); }
+            @Override public void onRemoveTag(File file, String tag) { viewModel.removeTag(tag); }
+            @Override public void onOpenRaw(File file) {
+                String raw = viewModel.getRawMetadata(file);
+                showRawMetadataPopup(raw);
+            }
         });
 
         this.filmstripView = new FilmstripView(thumbnailPool);
@@ -104,92 +108,48 @@ public class ImageBrowserView extends BorderPane {
         });
 
         this.folderNav = new FolderNav(new FolderNav.FolderNavListener() {
-            @Override public void onFolderSelected(File folder) { if (listener != null) listener.onFolderSelected(folder); }
-            @Override public void onSearch(String query) { if (listener != null) listener.onSearch(query); }
-            @Override public void onShowStarred() { if (listener != null) listener.onStarredRequested(); }
-            @Override public void onPinFolder(File folder) { if (listener != null) listener.onPinFolder(folder); }
-            @Override public void onUnpinFolder(File folder) { if (listener != null) listener.onUnpinFolder(folder); }
-            @Override public void onFilesMoved() { /* Optional refresh */ }
+            @Override public void onFolderSelected(File folder) { viewModel.loadFolder(folder); }
+            @Override public void onSearch(String query) { viewModel.search(query); }
+            @Override public void onShowStarred() { viewModel.loadStarred(); }
+            @Override public void onPinFolder(File folder) {
+                viewModel.pinFolder(folder);
+                refreshSidebar();
+            }
+            @Override public void onUnpinFolder(File folder) {
+                viewModel.unpinFolder(folder);
+                refreshSidebar();
+            }
+            @Override public void onFilesMoved() { }
         });
 
         this.setLeft(folderNav);
-
         setupCenterLayout();
         setupInputHandlers();
         setViewMode(ViewMode.BROWSER);
     }
 
-    public void setListener(ViewListener listener) {
-        this.listener = listener;
-    }
+    @Override
+    public void initialize(URL url, ResourceBundle resourceBundle) {
+        refreshSidebar();
 
-    public FolderNav getFolderNav() { return folderNav; }
-
-    public void displayFiles(List<File> files) {
-        this.currentFiles = (files != null) ? files : new ArrayList<>();
-        refreshCurrentView();
-    }
-
-    public void refreshSidebar(List<File> pinnedFolders) {
-        folderNav.setPinnedFolders(pinnedFolders);
-    }
-
-    public void updateSidebarMetadata(File file, Map<String, String> meta, Set<String> tags, boolean isStarred) {
-        metadataSidebar.updateData(file, meta, tags, isStarred);
-    }
-
-    public void showRawMetadataPopup(String rawText) {
-        rawMetaTextArea.setText(rawText);
-        overlayContainer.setVisible(true);
-    }
-
-    private void loadImage(int index) {
-        if (currentLoadingTask != null && !currentLoadingTask.isDone()) {
-            currentLoadingTask.cancel(true);
-        }
-
-        if (index < 0 || index >= currentFiles.size()) {
-            Platform.runLater(() -> mainImageView.setImage(null));
-            return;
-        }
-
-        File file = currentFiles.get(index);
-        this.currentIndex = index;
-        resetZoom();
-
-        mainImageView.setImage(null);
-
-        currentLoadingTask = thumbnailPool.submit(() -> {
-            if (Thread.currentThread().isInterrupted()) return;
-            Image img = loadRobustImage(file, 0);
-            if (Thread.currentThread().isInterrupted()) return;
-            Platform.runLater(() -> {
-                if (currentIndex == index) {
-                    mainImageView.setImage(img);
-                }
-            });
+        viewModel.currentFilesProperty().addListener((ListChangeListener<File>) c -> {
+            this.currentFiles = new ArrayList<>(viewModel.currentFilesProperty());
+            refreshCurrentView();
         });
 
-        filmstripView.setSelectedIndex(index);
-        Platform.runLater(() -> centerContainer.requestFocus());
+        viewModel.activeMetadataProperty().addListener((obs, old, meta) -> updateSidebar());
+        viewModel.activeTagsProperty().addListener((obs, old, tags) -> updateSidebar());
+        viewModel.activeStarredProperty().addListener((obs, old, isStarred) -> updateSidebar());
 
-        if (listener != null) {
-            listener.onImageSelected(file);
-        }
-    }
-
-    private void setupInputHandlers() {
-        this.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getTarget() instanceof TextInputControl) return;
-            switch (e.getCode()) {
-                case LEFT: case A: navigate(-1); e.consume(); break;
-                case RIGHT: case D: navigate(1); e.consume(); break;
-                case DELETE: deleteCurrentImage(); e.consume(); break;
-                case F: showFullScreen(getCurrentFile()); e.consume(); break;
-                case ESCAPE: if (overlayContainer.isVisible()) overlayContainer.setVisible(false); e.consume(); break;
+        Platform.runLater(() -> {
+            File lastFolder = viewModel.getLastFolder();
+            if (lastFolder != null && lastFolder.exists()) {
+                viewModel.loadFolder(lastFolder);
             }
         });
     }
+
+    // --- UI Layout Construction ---
 
     private void setupCenterLayout() {
         centerContainer = new StackPane();
@@ -253,6 +213,8 @@ public class ImageBrowserView extends BorderPane {
         overlayContainer.getChildren().add(box);
     }
 
+    // --- View Management ---
+
     public void setViewMode(ViewMode mode) {
         this.currentViewMode = mode;
         centerContainer.getChildren().clear();
@@ -272,22 +234,50 @@ public class ImageBrowserView extends BorderPane {
         }
     }
 
-    private void navigate(int dir) {
-        if (currentFiles.isEmpty()) return;
-
-        // --- INFINITE SCROLLING LOGIC ---
-        // (index + dir) % size handles wrapping automatically
-        // e.g. (4 + 1) % 5 = 0.
-        // For negative numbers: (-1) % 5 = -1 in Java. So we add size() to ensure positivity.
-        int newIndex = (currentIndex + dir) % currentFiles.size();
-        if (newIndex < 0) newIndex += currentFiles.size();
-
-        loadImage(newIndex);
+    private void refreshCurrentView() {
+        currentIndex = 0;
+        filmstripView.setFiles(currentFiles);
+        if (gridView != null) gridView.setItems(FXCollections.observableArrayList(currentFiles));
+        if (fileListView != null) fileListView.getItems().setAll(currentFiles);
+        if (!currentFiles.isEmpty() && currentViewMode == ViewMode.BROWSER) {
+            loadImage(0);
+        } else {
+            mainImageView.setImage(null);
+        }
     }
 
-    private File getCurrentFile() {
-        if (currentIndex >= 0 && currentIndex < currentFiles.size()) return currentFiles.get(currentIndex);
-        return null;
+    // --- Image Loading & Operations ---
+
+    private void loadImage(int index) {
+        if (currentLoadingTask != null && !currentLoadingTask.isDone()) {
+            currentLoadingTask.cancel(true);
+        }
+
+        if (index < 0 || index >= currentFiles.size()) {
+            Platform.runLater(() -> mainImageView.setImage(null));
+            return;
+        }
+
+        File file = currentFiles.get(index);
+        this.currentIndex = index;
+
+        viewModel.selectImage(file);
+        resetZoom();
+        mainImageView.setImage(null);
+
+        currentLoadingTask = thumbnailPool.submit(() -> {
+            if (Thread.currentThread().isInterrupted()) return;
+            Image img = loadRobustImage(file, 0);
+            if (Thread.currentThread().isInterrupted()) return;
+            Platform.runLater(() -> {
+                if (currentIndex == index) {
+                    mainImageView.setImage(img);
+                }
+            });
+        });
+
+        filmstripView.setSelectedIndex(index);
+        Platform.runLater(() -> centerContainer.requestFocus());
     }
 
     private void deleteCurrentImage() {
@@ -302,18 +292,6 @@ public class ImageBrowserView extends BorderPane {
                 }
             }
         });
-    }
-
-    private void refreshCurrentView() {
-        currentIndex = 0;
-        filmstripView.setFiles(currentFiles);
-        if (gridView != null) gridView.setItems(FXCollections.observableArrayList(currentFiles));
-        if (fileListView != null) fileListView.getItems().setAll(currentFiles);
-        if (!currentFiles.isEmpty() && currentViewMode == ViewMode.BROWSER) {
-            loadImage(0);
-        } else {
-            mainImageView.setImage(null);
-        }
     }
 
     private void showFullScreen(File file) {
@@ -333,7 +311,6 @@ public class ImageBrowserView extends BorderPane {
         root.setStyle("-fx-background-color: black;");
         root.setAlignment(Pos.CENTER);
         setupZoomAndPan(view, root, fsTranslate, fsScale, null);
-        Rectangle2D bounds = Screen.getPrimary().getVisualBounds();
         view.fitWidthProperty().bind(fsStage.widthProperty());
         view.fitHeightProperty().bind(fsStage.heightProperty());
         Scene scene = new Scene(root);
@@ -345,12 +322,19 @@ public class ImageBrowserView extends BorderPane {
         fsStage.show();
     }
 
-    private Image loadRobustImage(File file, double width) {
-        try {
-            Image img = new Image(file.toURI().toString(), width, 0, true, true, false);
-            if (img.isError()) return SwingFXUtils.toFXImage(ImageIO.read(file), null);
-            return img;
-        } catch (Exception ex) { return null; }
+    // --- Input & Event Handling ---
+
+    private void setupInputHandlers() {
+        this.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getTarget() instanceof TextInputControl) return;
+            switch (e.getCode()) {
+                case LEFT: case A: navigate(-1); e.consume(); break;
+                case RIGHT: case D: navigate(1); e.consume(); break;
+                case DELETE: deleteCurrentImage(); e.consume(); break;
+                case F: showFullScreen(getCurrentFile()); e.consume(); break;
+                case ESCAPE: if (overlayContainer.isVisible()) overlayContainer.setVisible(false); e.consume(); break;
+            }
+        });
     }
 
     private void setupZoomAndPan(ImageView view, Pane container, Translate translate, Scale scale, Runnable clickAction) {
@@ -372,8 +356,10 @@ public class ImageBrowserView extends BorderPane {
                 }
             }
         });
+
         class DragState { double startX, startY, transX, transY; boolean isDragging; }
         final DragState state = new DragState();
+
         container.setOnMousePressed(e -> {
             if (e.getButton() == MouseButton.MIDDLE || e.getButton() == MouseButton.PRIMARY) {
                 state.startX = e.getSceneX();
@@ -383,6 +369,7 @@ public class ImageBrowserView extends BorderPane {
                 state.isDragging = false;
             }
         });
+
         container.setOnMouseDragged(e -> {
             if (e.getButton() == MouseButton.MIDDLE || (e.getButton() == MouseButton.PRIMARY && scale.getX() > 1.0)) {
                 if (Math.abs(e.getSceneX() - state.startX) > 3 || Math.abs(e.getSceneY() - state.startY) > 3) {
@@ -393,17 +380,48 @@ public class ImageBrowserView extends BorderPane {
                 }
             }
         });
+
         container.setOnMouseReleased(e -> {
             container.setCursor(javafx.scene.Cursor.DEFAULT);
             if (!state.isDragging && e.getButton() == MouseButton.PRIMARY && clickAction != null) {
                 clickAction.run();
             }
         });
+
         container.setOnMouseClicked(e -> {
             if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
                 resetZoom();
             }
         });
+    }
+
+    // --- Helpers & Internal Logic ---
+
+    private void updateSidebar() {
+        File f = getCurrentFile();
+        if (f == null) return;
+        metadataSidebar.updateData(
+                f,
+                viewModel.activeMetadataProperty().get(),
+                viewModel.activeTagsProperty().get(),
+                viewModel.activeStarredProperty().get()
+        );
+    }
+
+    private void refreshSidebar() {
+        folderNav.setPinnedFolders(viewModel.getPinnedFolders());
+    }
+
+    private void navigate(int dir) {
+        if (currentFiles.isEmpty()) return;
+        int newIndex = (currentIndex + dir) % currentFiles.size();
+        if (newIndex < 0) newIndex += currentFiles.size();
+        loadImage(newIndex);
+    }
+
+    private File getCurrentFile() {
+        if (currentIndex >= 0 && currentIndex < currentFiles.size()) return currentFiles.get(currentIndex);
+        return null;
     }
 
     private void resetZoom() {
@@ -412,6 +430,23 @@ public class ImageBrowserView extends BorderPane {
         zoomTranslate.setX(0);
         zoomTranslate.setY(0);
     }
+
+    private Image loadRobustImage(File file, double width) {
+        try {
+            Image img = new Image(file.toURI().toString(), width, 0, true, true, false);
+            if (img.isError()) return SwingFXUtils.toFXImage(ImageIO.read(file), null);
+            return img;
+        } catch (Exception ex) { return null; }
+    }
+
+    public void showRawMetadataPopup(String rawText) {
+        rawMetaTextArea.setText(rawText);
+        overlayContainer.setVisible(true);
+    }
+
+    public FolderNav getFolderNav() { return folderNav; }
+
+    // --- Inner Classes ---
 
     private class ImageGridCell extends GridCell<File> {
         private final StackPane container;
@@ -433,6 +468,7 @@ public class ImageBrowserView extends BorderPane {
                 if (e.getClickCount() == 2) setViewMode(ViewMode.BROWSER);
             });
         }
+
         @Override
         protected void updateItem(File item, boolean empty) {
             super.updateItem(item, empty);
