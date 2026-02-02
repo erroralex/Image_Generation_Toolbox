@@ -7,6 +7,7 @@ import java.io.FileInputStream;
 import java.security.MessageDigest;
 import java.sql.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -20,13 +21,20 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class UserDataManager {
 
+    // ------------------------------------------------------------------------
+    // Fields
+    // ------------------------------------------------------------------------
+
     private final DatabaseService db;
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Lock readLock = rwLock.readLock();
     private final Lock writeLock = rwLock.writeLock();
+    private final Map<String, Map<String, String>> metadataCache = new ConcurrentHashMap<>();
     private final File libraryRoot;
 
-    // --- Constructor & Lifecycle ---
+    // ------------------------------------------------------------------------
+    // Constructor & Lifecycle
+    // ------------------------------------------------------------------------
 
     @javax.inject.Inject
     public UserDataManager(DatabaseService db) {
@@ -38,7 +46,9 @@ public class UserDataManager {
         db.shutdown();
     }
 
-    // --- Path Normalization ---
+    // ------------------------------------------------------------------------
+    // Path Normalization Logic
+    // ------------------------------------------------------------------------
 
     private File resolvePath(String dbPath) {
         if (dbPath == null) return null;
@@ -65,7 +75,9 @@ public class UserDataManager {
         return file.getAbsolutePath().replace("\\", "/");
     }
 
-    // --- Structured Search & FTS5 ---
+    // ------------------------------------------------------------------------
+    // Structured Search & FTS5
+    // ------------------------------------------------------------------------
 
     public List<String> getDistinctMetadataValues(String key) {
         List<String> values = new ArrayList<>();
@@ -149,7 +161,9 @@ public class UserDataManager {
         return findFilesWithFilters(query, new HashMap<>(), limit);
     }
 
-    // --- File Integrity & Hash Recovery ---
+    // ------------------------------------------------------------------------
+    // File Integrity & Hash Recovery
+    // ------------------------------------------------------------------------
 
     public void scanForMovedFiles(File folderToScan) {
         if (folderToScan == null || !folderToScan.exists()) return;
@@ -250,7 +264,9 @@ public class UserDataManager {
         }
     }
 
-    // --- Pinned Folders ---
+    // ------------------------------------------------------------------------
+    // Image Data Management (Rating, Starred, Folders)
+    // ------------------------------------------------------------------------
 
     public List<File> getPinnedFolders() {
         readLock.lock();
@@ -307,7 +323,34 @@ public class UserDataManager {
         }
     }
 
-    // --- Starred State Management ---
+    public int getRating(File file) {
+        if (file == null) return 0;
+        String sql = "SELECT rating FROM images WHERE file_path = ?";
+        try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, file.getAbsolutePath());
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) return rs.getInt("rating");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    public void setRating(File file, int rating) {
+        if (file == null) return;
+        int r = Math.max(0, Math.min(5, rating));
+        String sql = "UPDATE images SET rating = ? WHERE id = ?";
+        try {
+            int id = db.getOrCreateImageId(file.getAbsolutePath());
+            try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setInt(1, r);
+                pstmt.setInt(2, id);
+                pstmt.executeUpdate();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
     public void addStar(File file) {
         if (file == null) return;
@@ -377,7 +420,7 @@ public class UserDataManager {
                  Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery(sql)) {
                 while (rs.next()) {
-                    File f = resolvePath(rs.getString("file_path"));
+                    File f = resolvePath(rs.getString("path"));
                     if (f != null && f.exists()) result.add(f);
                 }
             } catch (SQLException e) {
@@ -389,7 +432,9 @@ public class UserDataManager {
         }
     }
 
-    // --- Tagging System ---
+    // ------------------------------------------------------------------------
+    // Tagging System
+    // ------------------------------------------------------------------------
 
     public void addTag(File file, String tag) {
         if (file == null || tag == null || tag.isBlank()) return;
@@ -464,7 +509,9 @@ public class UserDataManager {
         }
     }
 
-    // --- Metadata Cache & FTS Coordination ---
+    // ------------------------------------------------------------------------
+    // Metadata Cache & FTS Coordination
+    // ------------------------------------------------------------------------
 
     public boolean hasCachedMetadata(File file) {
         if (file == null) return false;
@@ -592,7 +639,9 @@ public class UserDataManager {
         throw new SQLException("Failed to get ID for " + relPath);
     }
 
-    // --- Virtual Collections ---
+    // ------------------------------------------------------------------------
+    // Virtual Collections Management
+    // ------------------------------------------------------------------------
 
     public List<String> getCollections() {
         readLock.lock();
@@ -723,7 +772,9 @@ public class UserDataManager {
         };
     }
 
-    // --- Settings & Persistence ---
+    // ------------------------------------------------------------------------
+    // Settings & Persistence
+    // ------------------------------------------------------------------------
 
     public String getSetting(String key, String defaultValue) {
         readLock.lock();
