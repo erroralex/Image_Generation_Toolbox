@@ -13,12 +13,18 @@ import java.sql.*;
  */
 public class DatabaseService {
 
-    // --- Configuration ---
+    // ------------------------------------------------------------------------
+    // Configuration & Constants
+    // ------------------------------------------------------------------------
+
     private static final String DB_URL = "jdbc:sqlite:data/library.db";
-    private static final int CURRENT_DB_VERSION = 3;
+    private static final int CURRENT_DB_VERSION = 4;
     private final HikariDataSource dataSource;
 
-    // --- Lifecycle ---
+    // ------------------------------------------------------------------------
+    // Lifecycle
+    // ------------------------------------------------------------------------
+
     public DatabaseService() {
         File dataDir = new File("data");
         if (!dataDir.exists()) {
@@ -45,7 +51,18 @@ public class DatabaseService {
         }
     }
 
-    // --- Migration Engine ---
+    // ------------------------------------------------------------------------
+    // Connection Management
+    // ------------------------------------------------------------------------
+
+    public Connection connect() throws SQLException {
+        return dataSource.getConnection();
+    }
+
+    // ------------------------------------------------------------------------
+    // Migration Engine
+    // ------------------------------------------------------------------------
+
     private void performMigrations() {
         try (Connection conn = connect()) {
             conn.setAutoCommit(false);
@@ -57,6 +74,7 @@ public class DatabaseService {
                     if (currentVersion < 1) applySchemaV1(conn);
                     if (currentVersion < 2) applySchemaV2(conn);
                     if (currentVersion < 3) applySchemaV3(conn);
+                    if (currentVersion < 4) applySchemaV4(conn);
 
                     setDatabaseVersion(conn, CURRENT_DB_VERSION);
                     conn.commit();
@@ -89,7 +107,10 @@ public class DatabaseService {
         }
     }
 
-    // --- Schema Definitions ---
+    // ------------------------------------------------------------------------
+    // Schema Migrations (V1 - V4)
+    // ------------------------------------------------------------------------
+
     private void applySchemaV1(Connection conn) throws SQLException {
         String createImagesTable = """
                     CREATE TABLE IF NOT EXISTS images (
@@ -204,31 +225,41 @@ public class DatabaseService {
         }
     }
 
-    // --- Connection Management ---
-    public Connection connect() throws SQLException {
-        return dataSource.getConnection();
-    }
-
-    // --- Data Access Operations ---
-    public int getOrCreateImageId(String absolutePath) throws SQLException {
-        String selectSql = "SELECT id FROM images WHERE file_path = ?";
-        String insertSql = "INSERT INTO images(file_path, last_scanned) VALUES(?, ?)";
-
-        try (Connection conn = connect()) {
-            try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
-                pstmt.setString(1, absolutePath);
-                ResultSet rs = pstmt.executeQuery();
-                if (rs.next()) return rs.getInt("id");
+    private void applySchemaV4(Connection conn) throws SQLException {
+        System.out.println("Applying Schema V4: Rating System...");
+        try (Statement stmt = conn.createStatement()) {
+            boolean hasCol = false;
+            try (ResultSet rs = conn.getMetaData().getColumns(null, null, "images", "rating")) {
+                if (rs.next()) hasCol = true;
             }
 
-            try (PreparedStatement pstmt = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
-                pstmt.setString(1, absolutePath);
-                pstmt.setLong(2, System.currentTimeMillis());
-                pstmt.executeUpdate();
-                ResultSet rs = pstmt.getGeneratedKeys();
-                if (rs.next()) return rs.getInt(1);
+            if (!hasCol) {
+                stmt.execute("ALTER TABLE images ADD COLUMN rating INTEGER DEFAULT 0");
+                stmt.execute("UPDATE images SET rating = 5 WHERE is_starred = 1");
             }
         }
-        throw new SQLException("Could not retrieve or create image ID for: " + absolutePath);
+    }
+
+    // ------------------------------------------------------------------------
+    // Data Access Operations
+    // ------------------------------------------------------------------------
+
+    public int getOrCreateImageId(String absolutePath) throws SQLException {
+        String selectSql = "SELECT id FROM images WHERE file_path = ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
+            pstmt.setString(1, absolutePath);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) return rs.getInt("id");
+        }
+
+        String insertSql = "INSERT INTO images(file_path, last_scanned) VALUES(?, ?)";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
+            pstmt.setString(1, absolutePath);
+            pstmt.setLong(2, System.currentTimeMillis());
+            pstmt.executeUpdate();
+            ResultSet rs = pstmt.getGeneratedKeys();
+            if (rs.next()) return rs.getInt(1);
+        }
+        throw new SQLException("Failed to get ID for: " + absolutePath);
     }
 }
