@@ -99,6 +99,7 @@ public class FilmstripView extends VBox {
     private class FilmstripCell extends ListCell<File> {
         private final ImageView imageView = new ImageView();
         private final VBox container = new VBox(imageView);
+        private java.util.concurrent.Future<?> loadingTask;
 
         public FilmstripCell() {
             container.setAlignment(Pos.CENTER);
@@ -120,6 +121,11 @@ public class FilmstripView extends VBox {
         @Override
         protected void updateItem(File item, boolean empty) {
             super.updateItem(item, empty);
+
+            if (loadingTask != null && !loadingTask.isDone()) {
+                loadingTask.cancel(true);
+            }
+
             if (empty || item == null) {
                 setGraphic(null);
                 imageView.setImage(null);
@@ -127,15 +133,29 @@ public class FilmstripView extends VBox {
             } else {
                 setGraphic(container);
                 setTooltip(new Tooltip(item.getName()));
-                imageView.setImage(null);
-                thumbnailPool.submit(() -> {
-                    Image img = loadRobustImage(item, 100);
-                    Platform.runLater(() -> {
-                        if (getItem() == item) {
-                            imageView.setImage(img);
+
+                Image cached = com.nilsson.imagetoolbox.ui.components.ThumbnailCache.get(item);
+                if (cached != null) {
+                    imageView.setImage(cached);
+                } else {
+                    imageView.setImage(null);
+
+                    loadingTask = thumbnailPool.submit(() -> {
+                        if (Thread.currentThread().isInterrupted()) return;
+
+                        Image img = com.nilsson.imagetoolbox.ui.components.ImageLoader.load(item, 0, 100);
+
+                        if (img != null) {
+                            com.nilsson.imagetoolbox.ui.components.ThumbnailCache.put(item.getAbsolutePath(), img);
                         }
+
+                        Platform.runLater(() -> {
+                            if (getItem() == item) {
+                                imageView.setImage(img);
+                            }
+                        });
                     });
-                });
+                }
             }
         }
     }

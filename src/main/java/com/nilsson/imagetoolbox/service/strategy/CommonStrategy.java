@@ -8,22 +8,43 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Common metadata parsing strategy for text-based image generation formats
- * such as Automatic1111 and compatible UIs.
- *
- * <p>This strategy extracts prompts, negative prompts, generation parameters,
- * LoRA references, and selected metadata fields from both free-form text
- * and structured JSON nodes.</p>
- *
- * <p>The class is intentionally tolerant to format variations and partial data,
- * prioritizing robustness over strict validation.</p>
+ <h2>CommonStrategy</h2>
+ <p>
+ This class provides a standardized parsing implementation for image generation metadata
+ primarily following the <b>Automatic1111 WebUI</b> format. It serves as a versatile parser
+ capable of processing both raw text blocks and structured JSON input.
+ </p>
+
+ <h3>Parsing Mechanisms:</h3>
+ <ul>
+ <li><b>Textual Decomposition:</b> Splits raw parameter strings to isolate positive prompts,
+ negative prompts, and key-value parameter blocks using a combination of string splitting
+ and regular expressions.</li>
+ <li><b>Signature Identification:</b> Recognizes standard tags such as "Steps", "Sampler",
+ "CFG Scale", and "Hires. fix" across multiple naming variations (e.g., "Schedule Type"
+ vs "Scheduler").</li>
+ <li><b>LoRA Extraction:</b> Implements a specialized regex pattern to detect and extract
+ {@code <lora:name:strength>} tags directly from the prompt text.</li>
+ <li><b>Flux Compatibility:</b> Explicitly handles "Distilled CFG" logic commonly found
+ in newer Flux-based workflows.</li>
+ <li><b>JSON Interrogation:</b> Provides an implementation of {@link MetadataStrategy#extract}
+ to capture attributes from node-based data structures.</li>
+ </ul>
+
+
  */
 public class CommonStrategy implements MetadataStrategy {
 
     /* ============================================================
-       Public API
+       Public API (Text Parsing)
        ============================================================ */
 
+    /**
+     Parses a raw text block into a structured map of generation parameters.
+     * @param text The raw metadata string (typically from the "parameters" PNG chunk).
+
+     @return A map of extracted metadata keys and values.
+     */
     public Map<String, String> parse(String text) {
         Map<String, String> results = new HashMap<>();
 
@@ -125,20 +146,16 @@ public class CommonStrategy implements MetadataStrategy {
 
         else if (key.equals("width")) {
             if (isValidSize(text)) results.put("Width", text);
-        }
-        else if (key.equals("height")) {
+        } else if (key.equals("height")) {
             if (isValidSize(text)) results.put("Height", text);
-        }
-        else if (key.contains("lora_name")) {
+        } else if (key.contains("lora_name")) {
             String existing = results.getOrDefault("Loras", "");
             if (!existing.contains(text)) {
                 results.put("Loras", existing.isEmpty() ? text : existing + ", " + text);
             }
-        }
-        else if (key.equals("upscale_by") || key.equals("upscale_method")) {
+        } else if (key.equals("upscale_by") || key.equals("upscale_method")) {
             results.put("Hires. fix", "Enabled (" + text + "x)");
-        }
-        else if (key.contains("control_net") || key.contains("controlnet")) {
+        } else if (key.contains("control_net") || key.contains("controlnet")) {
             String existing = results.getOrDefault("ControlNet", "");
             if (!existing.contains(text)) {
                 results.put("ControlNet", existing.isEmpty() ? text : existing + ", " + text);
@@ -147,7 +164,7 @@ public class CommonStrategy implements MetadataStrategy {
     }
 
     /* ============================================================
-       Helpers
+       Internal Helpers
        ============================================================ */
 
     private void extractLorasFromText(String prompt, Map<String, String> results) {

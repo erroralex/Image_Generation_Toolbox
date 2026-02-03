@@ -1,214 +1,352 @@
 package com.nilsson.imagetoolbox.ui.views;
 
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.*;
-import org.kordamp.ikonli.fontawesome.FontAwesome;
 import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.awt.Desktop;
 import java.io.File;
 import java.util.Map;
-import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Sidebar component for displaying image metadata, tags, and actions.
- * <p>
- * This class is a "Dumb View". It does not fetch data.
- * It receives data via {@link #updateData(File, Map, Set, boolean)} and
- * delegates actions to the {@link SidebarListener}.
+ <h2>MetadataSidebar</h2>
+ <p>
+ A dedicated inspector panel that displays detailed AI generation metadata for a selected image.
+ This component provides a deep dive into prompts, sampler settings, and model information.
+ </p>
+ * <h3>Core Features:</h3>
+ <ul>
+ <li><b>Drawer Transitions:</b> Supports both docked (side-panel) and floating (drawer) modes.</li>
+ <li><b>Prompt Inspection:</b> Dedicated sections for positive and negative prompts with integrated copy-to-clipboard functionality.</li>
+ <li><b>Technical Grid:</b> Organizes complex generation parameters like Sampler, Scheduler, CFG, and Steps into a scannable grid.</li>
+ <li><b>Resource Tracking:</b> Dynamically generates "chips" for LoRAs detected in the metadata or prompt text.</li>
+ <li><b>Star Rating:</b> Provides an interactive 5-star rating system synchronized with the underlying database.</li>
+ </ul>
+ *
  */
-public class MetadataSidebar extends ScrollPane {
+public class MetadataSidebar extends VBox {
 
-    public interface SidebarListener {
-        void onToggleStar(File file);
-        void onAddTag(File file, String tag);
-        void onRemoveTag(File file, String tag);
-        void onOpenRaw(File file);
-    }
-
-    private final VBox contentBox;
-    private final SidebarListener listener;
-
-    private FlowPane tagsFlowPane;
-    private TextField tagInput;
-    private File currentFile;
-
-    public MetadataSidebar(SidebarListener listener) {
-        this.listener = listener;
-
-        this.contentBox = new VBox(15);
-        this.contentBox.setPadding(new Insets(20));
-
-        this.setContent(contentBox);
-        this.setFitToWidth(true);
-        this.setMinWidth(300);
-        this.setPrefWidth(340);
-        this.getStyleClass().add("meta-pane");
-    }
+    // ------------------------------------------------------------------------
+    // Action Handler Interface
+    // ------------------------------------------------------------------------
 
     /**
-     * Updates the sidebar with fresh data pushed from the Controller.
+     Listener interface to handle user interactions within the sidebar,
+     delegating logic to the controller or ViewModel.
      */
-    public void updateData(File file, Map<String, String> metadata, Set<String> tags, boolean isStarred) {
+    public interface SidebarActionHandler {
+        void onToggleDock();
+
+        void onClose();
+
+        void onSetRating(int rating);
+
+        void onCreateCollection(String name);
+
+        void onAddToCollection(String collectionName);
+    }
+
+    // ------------------------------------------------------------------------
+    // Fields & UI Controls
+    // ------------------------------------------------------------------------
+
+    private final SidebarActionHandler actionHandler;
+    private final TextField inspectorFilename;
+    private final HBox starRatingBox;
+    private final Button dockToggleBtn;
+    private final TextArea promptArea;
+    private final TextArea negativePromptArea;
+    private final TextField softwareField, modelField, seedField, samplerField, schedulerField, cfgField, stepsField, resField;
+    private final FlowPane lorasFlow;
+    private final ComboBox<String> collectionCombo;
+    private File currentFile;
+
+    // ------------------------------------------------------------------------
+    // Constructor & UI Initialization
+    // ------------------------------------------------------------------------
+
+    public MetadataSidebar(SidebarActionHandler actionHandler) {
+        this.actionHandler = actionHandler;
+
+        this.getStyleClass().add("inspector-drawer");
+        this.setPrefWidth(380);
+        this.setMinWidth(380);
+        this.setMaxWidth(380);
+
+        // --- Header Section ---
+        VBox headerContainer = new VBox(10);
+        headerContainer.getStyleClass().add("inspector-header");
+        headerContainer.setAlignment(Pos.CENTER_LEFT);
+        headerContainer.setPadding(new Insets(15));
+
+        inspectorFilename = new TextField("No Selection");
+        inspectorFilename.setEditable(false);
+        inspectorFilename.getStyleClass().add("inspector-filename-field");
+        inspectorFilename.setMaxWidth(Double.MAX_VALUE);
+
+        HBox buttonRow = new HBox(15);
+        buttonRow.setAlignment(Pos.CENTER_LEFT);
+        Button openFileBtn = createLargeIconButton("fa-folder-open:16:white", "Open Location", e -> openFileLocation(currentFile));
+        Button rawDataBtn = createLargeIconButton("fa-code:16:white", "Raw Metadata", e -> {
+        });
+        dockToggleBtn = createLargeIconButton("fa-columns:16:white", "Snap to Side", e -> actionHandler.onToggleDock());
+        Button closeBtn = createLargeIconButton("fa-close:16:white", "Close Panel", e -> actionHandler.onClose());
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        buttonRow.getChildren().addAll(openFileBtn, rawDataBtn, dockToggleBtn, spacer, closeBtn);
+        headerContainer.getChildren().addAll(inspectorFilename, buttonRow);
+
+        // --- Scrollable Content Section ---
+        ScrollPane scrollContent = new ScrollPane();
+        scrollContent.setFitToWidth(true);
+        scrollContent.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        scrollContent.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(15));
+        content.setMaxWidth(350);
+
+        // Interaction: Rating
+        starRatingBox = new HBox(5);
+        starRatingBox.setAlignment(Pos.CENTER);
+        for (int i = 1; i <= 5; i++) {
+            Button star = new Button();
+            star.getStyleClass().add("star-button");
+            star.setGraphic(new FontIcon("fa-star-o:20:#808080"));
+            final int r = i;
+            star.setOnAction(e -> actionHandler.onSetRating(r));
+            starRatingBox.getChildren().add(star);
+        }
+
+        Label metaHeader = new Label("METADATA");
+        metaHeader.getStyleClass().add("section-header-large");
+        metaHeader.setAlignment(Pos.CENTER);
+        metaHeader.setMaxWidth(Double.MAX_VALUE);
+
+        // Prompt Areas
+        VBox posPromptBox = createPromptSection("PROMPT", true);
+        promptArea = (TextArea) posPromptBox.getChildren().get(1);
+
+        VBox negPromptBox = createPromptSection("NEGATIVE PROMPT", false);
+        negativePromptArea = (TextArea) negPromptBox.getChildren().get(1);
+
+        // Technical Parameter Grid
+        GridPane techGrid = new GridPane();
+        techGrid.setHgap(15);
+        techGrid.setVgap(15);
+
+        softwareField = addTechItem(techGrid, "Software", 0, 0, 2);
+        modelField = addTechItem(techGrid, "Model", 0, 1, 2);
+        seedField = addTechItem(techGrid, "Seed", 0, 2, 1);
+        resField = addTechItem(techGrid, "Resolution", 1, 2, 1);
+        samplerField = addTechItem(techGrid, "Sampler", 0, 3, 1);
+        schedulerField = addTechItem(techGrid, "Scheduler", 1, 3, 1);
+        cfgField = addTechItem(techGrid, "CFG", 0, 4, 1);
+        stepsField = addTechItem(techGrid, "Steps", 1, 4, 1);
+
+        // Resource Flow
+        VBox loraBox = new VBox(8);
+        Label loraTitle = new Label("RESOURCES / LoRAs");
+        loraTitle.getStyleClass().add("section-label");
+        lorasFlow = new FlowPane(6, 6);
+        lorasFlow.setMaxWidth(340);
+        loraBox.getChildren().addAll(loraTitle, lorasFlow);
+
+        // Collection Management
+        HBox collectionBox = new HBox(10);
+        collectionBox.setAlignment(Pos.CENTER_LEFT);
+        collectionCombo = new ComboBox<>();
+        collectionCombo.setPromptText("Add to Collection...");
+        collectionCombo.setMaxWidth(Double.MAX_VALUE);
+        collectionCombo.getStyleClass().add("collection-combo");
+        HBox.setHgrow(collectionCombo, Priority.ALWAYS);
+
+        Button newColBtn = createIconButton("fa-plus:14:white", "New Collection", e -> {
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("New Collection");
+            dialog.setHeaderText("Enter collection name:");
+            dialog.showAndWait().ifPresent(actionHandler::onCreateCollection);
+        });
+
+        Button addColBtn = createIconButton("fa-check:14:white", "Add to Collection", e -> {
+            String col = collectionCombo.getValue();
+            if (col != null) actionHandler.onAddToCollection(col);
+        });
+        collectionBox.getChildren().addAll(collectionCombo, newColBtn, addColBtn);
+
+        content.getChildren().addAll(starRatingBox, new Separator(), metaHeader, posPromptBox, negPromptBox,
+                new Separator(), techGrid, new Separator(), loraBox, new Region(), collectionBox);
+        scrollContent.setContent(content);
+
+        this.getChildren().addAll(headerContainer, scrollContent);
+        VBox.setVgrow(scrollContent, Priority.ALWAYS);
+    }
+
+    // ------------------------------------------------------------------------
+    // Public API & Data Binding
+    // ------------------------------------------------------------------------
+
+    public void setCollections(ObservableList<String> collections) {
+        collectionCombo.setItems(collections);
+    }
+
+    public void updateData(File file, Map<String, String> meta) {
         this.currentFile = file;
-        contentBox.getChildren().clear();
+        if (file == null) {
+            inspectorFilename.setText("No Selection");
+            promptArea.setText("");
+            negativePromptArea.setText("");
+            lorasFlow.getChildren().clear();
+            return;
+        }
 
-        if (file == null) return;
+        inspectorFilename.setText(file.getName());
+        promptArea.setText(meta.getOrDefault("Prompt", ""));
 
-        // 1. Toolbar
-        HBox toolbar = new HBox(15);
-        toolbar.setAlignment(Pos.CENTER_LEFT);
-        toolbar.setPadding(new Insets(0, 0, 10, 0));
+        String neg = meta.get("Negative");
+        if (neg == null) neg = meta.get("Negative Prompt");
+        negativePromptArea.setText(neg != null ? neg : "");
 
-        Button btnStar = new Button();
-        btnStar.getStyleClass().add("icon-button");
-        FontIcon starIcon = new FontIcon(isStarred ? FontAwesome.STAR : FontAwesome.STAR_O);
-        starIcon.setIconSize(18);
-        if (isStarred) starIcon.setStyle("-fx-icon-color: gold;");
-        btnStar.setGraphic(starIcon);
-        btnStar.setOnAction(e -> {
-            if (listener != null) listener.onToggleStar(file);
-        });
+        seedField.setText(meta.getOrDefault("Seed", "-"));
+        samplerField.setText(meta.getOrDefault("Sampler", "-"));
+        schedulerField.setText(meta.getOrDefault("Scheduler", "-"));
+        cfgField.setText(meta.getOrDefault("CFG", "-"));
+        stepsField.setText(meta.getOrDefault("Steps", "-"));
+        modelField.setText(meta.getOrDefault("Model", "-"));
 
-        Button btnRaw = new Button();
-        btnRaw.setTooltip(new Tooltip("View Raw Metadata"));
-        btnRaw.getStyleClass().add("icon-button");
-        btnRaw.setGraphic(new FontIcon(FontAwesome.FILE_CODE_O));
-        btnRaw.setOnAction(e -> {
-            if (listener != null) listener.onOpenRaw(file);
-        });
-
-        Button btnFolder = new Button();
-        btnFolder.setTooltip(new Tooltip("Open File Location"));
-        btnFolder.getStyleClass().add("icon-button");
-        btnFolder.setGraphic(new FontIcon(FontAwesome.FOLDER_OPEN_O));
-        btnFolder.setOnAction(e -> {
-            try { Desktop.getDesktop().open(file.getParentFile()); } catch (Exception ex) {}
-        });
-
-        toolbar.getChildren().addAll(btnStar, btnRaw, btnFolder);
-        contentBox.getChildren().add(toolbar);
-
-        // 2. Title & Tags
-        Label title = new Label(file.getName());
-        title.getStyleClass().add("meta-value");
-        title.setStyle("-fx-font-size: 14px; -fx-font-weight: bold; -fx-padding: 0 0 10 0;");
-
-        tagsFlowPane = new FlowPane(8, 8);
-        if (tags != null) tags.forEach(t -> addTagChip(file, t));
-
-        tagInput = new TextField();
-        tagInput.setPromptText("+ Add Tag");
-        tagInput.getStyleClass().add("search-field");
-        tagInput.setOnAction(e -> {
-            String txt = tagInput.getText().trim();
-            if (!txt.isEmpty() && listener != null) {
-                listener.onAddTag(file, txt);
-                tagInput.clear();
-            }
-        });
-
-        contentBox.getChildren().addAll(title, tagsFlowPane, tagInput, new Separator());
-
-        // 3. Render Metadata Fields
-        if (metadata != null && !metadata.isEmpty()) {
-            renderFields(metadata);
+        if (meta.containsKey("Width") && meta.containsKey("Height")) {
+            resField.setText(meta.get("Width") + "x" + meta.get("Height"));
         } else {
-            Label noMeta = new Label("No metadata found or indexing...");
-            noMeta.setStyle("-fx-text-fill: #666; -fx-font-style: italic;");
-            contentBox.getChildren().add(noMeta);
+            resField.setText(meta.getOrDefault("Resolution", "-"));
+        }
+
+        String soft = meta.get("Software");
+        if (soft == null) soft = meta.get("Generator");
+        if (soft == null) soft = meta.getOrDefault("Tool", "Unknown");
+        softwareField.setText(soft);
+
+        lorasFlow.getChildren().clear();
+        String loraRaw = meta.get("Loras");
+        if (loraRaw == null) loraRaw = meta.get("LoRAs");
+        if (loraRaw == null) loraRaw = meta.get("Resources");
+
+        if (loraRaw != null && !loraRaw.isEmpty()) {
+            for (String lora : loraRaw.split(",")) addLoraChip(lora.trim());
+        } else {
+            Matcher m = Pattern.compile("<lora:([^:]+):").matcher(promptArea.getText());
+            while (m.find()) addLoraChip(m.group(1));
         }
     }
 
-    private void renderFields(Map<String, String> data) {
-        addMetaBlock("Prompt", data.get("Prompt"), true);
-        addMetaBlock("Negative", data.get("Negative"), true);
-
-        Separator sep = new Separator();
-        sep.setPadding(new Insets(10, 0, 10, 0));
-        contentBox.getChildren().add(sep);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-        ColumnConstraints col1 = new ColumnConstraints(); col1.setPercentWidth(50);
-        ColumnConstraints col2 = new ColumnConstraints(); col2.setPercentWidth(50);
-        grid.getColumnConstraints().addAll(col1, col2);
-
-        String sampler = data.getOrDefault("Sampler", "-");
-        String scheduler = data.getOrDefault("Scheduler", "-");
-        String dim = (data.containsKey("Width") && data.containsKey("Height")) ? data.get("Width") + "x" + data.get("Height") : "-";
-
-        addGridItem(grid, "Model", data.get("Model"), 0, 0, 2);
-        addGridItem(grid, "Sampler", sampler, 0, 1, 1);
-        addGridItem(grid, "Scheduler", scheduler, 1, 1, 1);
-        addGridItem(grid, "Steps", data.get("Steps"), 0, 2, 1);
-        addGridItem(grid, "CFG", data.get("CFG"), 1, 2, 1);
-        addGridItem(grid, "Seed", data.get("Seed"), 0, 3, 1);
-        addGridItem(grid, "Resolution", dim, 1, 3, 1);
-        if (data.containsKey("Loras")) addGridItem(grid, "Loras", data.get("Loras"), 0, 4, 2);
-
-        contentBox.getChildren().add(grid);
+    public void setRating(int rating) {
+        for (int i = 0; i < starRatingBox.getChildren().size(); i++) {
+            Button b = (Button) starRatingBox.getChildren().get(i);
+            FontIcon icon = (FontIcon) b.getGraphic();
+            if (i < rating) icon.setIconLiteral("fa-star:20:#FFD700");
+            else icon.setIconLiteral("fa-star-o:20:#808080");
+        }
     }
 
-    private void addTagChip(File file, String tag) {
-        String displayTag = tag.trim();
-        Label chip = new Label(displayTag);
-        chip.getStyleClass().add("tag-chip");
-        int hue = Math.abs(displayTag.toLowerCase().hashCode()) % 360;
-        chip.setStyle("-fx-background-color: hsb(" + hue + ", 60%, 50%);");
+    public void updateResolution(double w, double h) {
+        if ("-".equals(resField.getText()) || resField.getText().isEmpty()) {
+            resField.setText((int) w + "x" + (int) h);
+        }
+    }
 
-        chip.setOnMouseClicked(e -> {
-            if (listener != null) listener.onRemoveTag(file, displayTag);
+    public void setDocked(boolean isDocked) {
+        FontIcon icon = (FontIcon) dockToggleBtn.getGraphic();
+        icon.setIconLiteral(isDocked ? "fa-columns:16:#0078d7" : "fa-columns:16:white");
+    }
+
+    // ------------------------------------------------------------------------
+    // Internal UI Helpers
+    // ------------------------------------------------------------------------
+
+    private TextField addTechItem(GridPane grid, String title, int col, int row, int colSpan) {
+        VBox box = new VBox(2);
+        Label t = new Label(title);
+        t.getStyleClass().add("tech-grid-label");
+        TextField v = new TextField("-");
+        v.setEditable(false);
+        v.getStyleClass().add("tech-grid-value-field");
+        v.setMaxWidth(colSpan > 1 ? 330 : 150);
+        box.getChildren().addAll(t, v);
+        grid.add(box, col, row, colSpan, 1);
+        return v;
+    }
+
+    private void addLoraChip(String text) {
+        TextField tag = new TextField(text);
+        tag.setEditable(false);
+        tag.getStyleClass().add("lora-chip-field");
+        int approxWidth = 20 + (text.length() * 7);
+        tag.setPrefWidth(Math.min(approxWidth, 330));
+        tag.setMinWidth(Region.USE_PREF_SIZE);
+        tag.setMaxWidth(330);
+        lorasFlow.getChildren().add(tag);
+    }
+
+    private Button createLargeIconButton(String icon, String tooltip, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
+        Button btn = new Button();
+        btn.setGraphic(new FontIcon(icon));
+        btn.getStyleClass().add("icon-button-large");
+        if (tooltip != null) btn.setTooltip(new Tooltip(tooltip));
+        btn.setOnAction(action);
+        return btn;
+    }
+
+    private Button createIconButton(String icon, String tooltip, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
+        Button btn = new Button();
+        btn.setGraphic(new FontIcon(icon));
+        btn.getStyleClass().add("icon-button");
+        if (tooltip != null) btn.setTooltip(new Tooltip(tooltip));
+        btn.setOnAction(action);
+        return btn;
+    }
+
+    private VBox createPromptSection(String title, boolean isPositive) {
+        VBox box = new VBox(5);
+        HBox titleRow = new HBox(10);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        Label lbl = new Label(title);
+        lbl.getStyleClass().add("section-label");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button copyBtn = new Button();
+        copyBtn.setGraphic(new FontIcon("fa-copy:12:#aaaaaa"));
+        copyBtn.getStyleClass().add("icon-button-small");
+        copyBtn.setTooltip(new Tooltip("Copy Text"));
+        TextArea area = new TextArea();
+        area.getStyleClass().add("prompt-block");
+        area.setWrapText(true);
+        area.setEditable(false);
+        area.setPrefHeight(isPositive ? 100 : 60);
+        area.setMaxWidth(330);
+        copyBtn.setOnAction(e -> {
+            ClipboardContent cc = new ClipboardContent();
+            cc.putString(area.getText());
+            Clipboard.getSystemClipboard().setContent(cc);
         });
-
-        tagsFlowPane.getChildren().add(chip);
+        titleRow.getChildren().addAll(lbl, spacer, copyBtn);
+        box.getChildren().addAll(titleRow, area);
+        return box;
     }
 
-    private void addMetaBlock(String label, String value, boolean copy) {
-        if (value == null || value.isEmpty()) return;
-        HBox header = new HBox(10);
-        header.setAlignment(Pos.CENTER_LEFT);
-        Label lbl = new Label(label);
-        lbl.getStyleClass().add("meta-label");
-        header.getChildren().add(lbl);
-        if (copy) {
-            Button cp = new Button();
-            cp.setGraphic(new FontIcon(FontAwesome.COPY));
-            cp.getStyleClass().add("icon-button-small");
-            cp.setOnAction(e -> {
-                ClipboardContent cc = new ClipboardContent();
-                cc.putString(value);
-                Clipboard.getSystemClipboard().setContent(cc);
-            });
-            header.getChildren().add(cp);
-        }
-        TextArea t = new TextArea(value);
-        t.setEditable(false);
-        t.setWrapText(true);
-        t.getStyleClass().add("meta-value-text-area");
-        t.setPrefRowCount(Math.min(6, Math.max(1, value.length() / 45)));
-        VBox b = new VBox(2, header, t);
-        b.getStyleClass().add("meta-value-box");
-        contentBox.getChildren().add(b);
-    }
-
-    private void addGridItem(GridPane g, String l, String v, int c, int r, int cs) {
-        if (v == null) v = "-";
-        VBox b = new VBox(2);
-        Label lb = new Label(l);
-        lb.getStyleClass().add("meta-label");
-        TextArea t = new TextArea(v);
-        t.setEditable(false);
-        t.setWrapText(true);
-        t.getStyleClass().add("meta-value-text-area");
-        t.setPrefRowCount(1);
-        t.setMaxWidth(Double.MAX_VALUE);
-        b.getChildren().addAll(lb, t);
-        g.add(b, c, r, cs, 1);
+    private void openFileLocation(File file) {
+        if (file != null) new Thread(() -> {
+            try {
+                if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop().open(file.getParentFile());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 }

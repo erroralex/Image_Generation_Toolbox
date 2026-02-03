@@ -12,20 +12,50 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
+import javax.imageio.ImageIO;
 import java.util.List;
 
 /**
- * Entry point for the Image Generation Toolbox application.
- * This class handles the JavaFX lifecycle, Guice module initialization,
- * and the configuration of the primary transparent stage including
- * pseudo-maximize logic and resizing capabilities.
+ <h2>MainApp</h2>
+ <p>
+ The central entry point for the <b>Image Generation Toolbox</b> application.
+ This class extends {@link MvvmfxGuiceApplication} to integrate JavaFX with
+ the MVVM pattern and Guice dependency injection.
+ </p>
+
+ <h3>Core Responsibilities:</h3>
+ <ul>
+ <li><b>Dependency Injection:</b> Initializes the Guice container by loading the {@link AppModule}.</li>
+ <li><b>Stage Configuration:</b> Configures the primary stage with a {@code TRANSPARENT} style
+ to support custom window decorations and modern UI aesthetics.</li>
+ <li><b>Layout Initialization:</b> Coordinates with the {@link ViewFactory} to bootstrap
+ the {@link RootLayout} and inject the primary stage context.</li>
+ <li><b>Window Management:</b> Implements pseudo-maximize logic by calculating primary screen
+ visual bounds and attaches a {@code ResizeHelper} to manage borderless window resizing.</li>
+ <li><b>Runtime Preparation:</b> Scans for {@code ImageIO} plugins to ensure broad image
+ format support across different operating systems.</li>
+ </ul>
  */
 public class MainApp extends MvvmfxGuiceApplication {
+
+    // ------------------------------------------------------------------------
+    // Dependency Injection
+    // ------------------------------------------------------------------------
 
     @Inject
     private ViewFactory viewFactory;
 
-    // --- Application Lifecycle ---
+    // ------------------------------------------------------------------------
+    // Static Initializer
+    // ------------------------------------------------------------------------
+
+    static {
+        ImageIO.scanForPlugins();
+    }
+
+    // ------------------------------------------------------------------------
+    // Application Lifecycle
+    // ------------------------------------------------------------------------
 
     @Override
     public void initGuiceModules(List<Module> modules) throws Exception {
@@ -61,7 +91,9 @@ public class MainApp extends MvvmfxGuiceApplication {
         stage.setHeight(visualBounds.getHeight());
     }
 
-    // --- Entry Point ---
+    // ------------------------------------------------------------------------
+    // Entry Point
+    // ------------------------------------------------------------------------
 
     public static void main(String[] args) {
         launch(args);

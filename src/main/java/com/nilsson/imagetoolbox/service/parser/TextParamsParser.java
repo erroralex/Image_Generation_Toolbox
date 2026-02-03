@@ -9,19 +9,46 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * Parses text-based image generation metadata into structured key-value data.
- * <p>
- * This parser serves as a router that identifies the source format of the metadata
- * (e.g., ComfyUI, Automatic1111, InvokeAI, NovelAI, or SwarmUI) and delegates the
- * extraction logic to specific parsing strategies. It handles both raw string
- * parameter blocks and complex JSON structures.
+ <h2>TextParamsParser</h2>
+ <p>
+ This class serves as a high-level orchestration layer for parsing text-based image generation
+ metadata into structured key-value pairs. It acts as a central router that identifies the
+ originating software or format and delegates processing to specific strategy implementations.
+ </p>
+
+ <h3>Parsing Logic:</h3>
+ <ul>
+ <li><b>JSON-Based Routing:</b> Detects ComfyUI workflows (both Web UI and API versions)
+ by checking for JSON structures and specific node identifiers.</li>
+ <li><b>Signature Detection:</b> Identifies string-based metadata blocks for popular
+ generators like Automatic1111 (Common), InvokeAI, NovelAI, and SwarmUI.</li>
+ <li><b>Strategy Pattern:</b> Utilizes a modular approach to extraction, allowing the
+ parser to remain extensible as new AI generation tools emerge.</li>
+ </ul>
+
+ <h3>Supported Formats:</h3>
+ <p>
+ ComfyUI, Automatic1111, InvokeAI, NovelAI, and SwarmUI.
+ </p>
  */
 public class TextParamsParser {
 
-    // --- Configuration ---
+    // ------------------------------------------------------------------------
+    // Configuration
+    // ------------------------------------------------------------------------
+
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    // --- Public API ---
+    // ------------------------------------------------------------------------
+    // Public API
+    // ------------------------------------------------------------------------
+
+    /**
+     Entry point for parsing metadata strings.
+     * @param text The raw metadata string extracted from an image header or sidecar file.
+
+     @return A {@link Map} containing the structured keys (e.g., "Seed", "Steps") and their values.
+     */
     public static Map<String, String> parse(String text) {
         if (text == null || text.trim().isEmpty()) {
             return new HashMap<>();
@@ -89,7 +116,10 @@ public class TextParamsParser {
         return new HashMap<>();
     }
 
-    // --- Internal Helpers ---
+    // ------------------------------------------------------------------------
+    // Internal Helpers
+    // ------------------------------------------------------------------------
+
     private static void processComfyNode(
             JsonNode node,
             ComfyUIStrategy strategy,
