@@ -2,14 +2,29 @@ package com.nilsson.imagetoolbox.data;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-
 import java.io.File;
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- Service class responsible for managing the SQLite database lifecycle and connectivity.
- It utilizes the HikariCP connection pool to optimize performance for the Image Toolbox
- application and handles automatic schema migrations using SQLite's user_version.
+ <h2>DatabaseService</h2>
+ <p>
+ This service class acts as the central authority for the application's data layer.
+ It manages the lifecycle of the SQLite database, including directory initialization,
+ connection pooling via HikariCP, and automatic schema migrations.
+ </p>
+ * <h3>Key Responsibilities:</h3>
+ <ul>
+ <li><b>Pool Management:</b> Configures and maintains a {@link HikariDataSource} to
+ efficiently handle concurrent database connections.</li>
+ <li><b>Migration Engine:</b> Implements a version-based migration system using
+ SQLite's {@code user_version} PRAGMA to evolve the schema from V1 through V4.</li>
+ <li><b>SQLite Optimization:</b> Enables WAL (Write-Ahead Logging) mode, foreign
+ key constraints, and optimized synchronous settings for performance.</li>
+ <li><b>Data Access:</b> Provides utility methods for common CRUD operations like
+ ID retrieval and metadata querying.</li>
+ </ul>
  */
 public class DatabaseService {
 
@@ -261,5 +276,27 @@ public class DatabaseService {
             if (rs.next()) return rs.getInt(1);
         }
         throw new SQLException("Failed to get ID for: " + absolutePath);
+    }
+
+    public List<String> getDistinctAttribute(String attributeKey) {
+        List<String> results = new ArrayList<>();
+        String sql = "SELECT DISTINCT value FROM image_metadata WHERE key = ? ORDER BY value ASC";
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, attributeKey);
+            ResultSet rs = pstmt.executeQuery();
+
+            while (rs.next()) {
+                String val = rs.getString("value");
+                if (val != null && !val.isBlank()) {
+                    results.add(val);
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return results;
     }
 }

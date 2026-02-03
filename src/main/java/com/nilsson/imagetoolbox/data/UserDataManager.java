@@ -1,35 +1,48 @@
 package com.nilsson.imagetoolbox.data;
 
 import javafx.concurrent.Task;
-
+import java.awt.*;
 import java.io.File;
 import java.io.FileInputStream;
 import java.security.MessageDigest;
 import java.sql.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- Manages persistent user data with robust relative path handling, FTS5 search,
- and structured metadata filtering.
- * This service handles the business logic for file tracking, metadata caching,
- tagging, and virtual collection management while ensuring thread safety
- through a ReadWriteLock mechanism.
+ <h2>UserDataManager</h2>
+ <p>
+ This class serves as the primary data access layer for the Image Toolbox application.
+ It manages persistent user data, including file locations, metadata caching, tagging,
+ and virtual collections.
+ </p>
+ * <h3>Key Features:</h3>
+ <ul>
+ <li><b>Path Normalization:</b> Handles conversion between absolute system paths and
+ database-friendly relative paths to ensure library portability.</li>
+ <li><b>Concurrency Control:</b> Implements a {@link ReadWriteLock} strategy to ensure
+ thread-safe access to the underlying SQLite database during heavy scan or search operations.</li>
+ <li><b>Advanced Search:</b> Leverages SQLite's FTS5 (Full-Text Search) for rapid
+ global querying across tags and metadata.</li>
+ <li><b>File Integrity:</b> Utilizes SHA-256 hashing to track files even if they are
+ renamed or moved within the library structure.</li>
+ <li><b>Integration:</b> Supports system-level operations like moving files to the
+ OS trash while keeping the database synchronized.</li>
+ </ul>
  */
 public class UserDataManager {
 
     // ------------------------------------------------------------------------
-    // Fields
+    // Fields & State
     // ------------------------------------------------------------------------
 
     private final DatabaseService db;
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Lock readLock = rwLock.readLock();
     private final Lock writeLock = rwLock.writeLock();
-    private final Map<String, Map<String, String>> metadataCache = new ConcurrentHashMap<>();
     private final File libraryRoot;
 
     // ------------------------------------------------------------------------
@@ -157,94 +170,42 @@ public class UserDataManager {
         };
     }
 
-    public Task<List<File>> findFilesAsync(String query, int limit, int offset) {
-        return findFilesWithFilters(query, new HashMap<>(), limit);
-    }
-
     // ------------------------------------------------------------------------
-    // File Integrity & Hash Recovery
+    // File Operations & Hashing
     // ------------------------------------------------------------------------
 
-    public void scanForMovedFiles(File folderToScan) {
-        if (folderToScan == null || !folderToScan.exists()) return;
+    public boolean moveFileToTrash(File file) {
+        if (file == null || !file.exists()) return false;
 
-        Task<Void> task = new Task<>() {
-            @Override
-            protected Void call() throws Exception {
-                updateMessage("Scanning files...");
-                List<File> files = new ArrayList<>();
-                walk(folderToScan, files);
-
-                updateMessage("Checking database...");
-
-                writeLock.lock();
-                try (Connection conn = db.connect()) {
-                    conn.setAutoCommit(false);
-
-                    String findSql = "SELECT id, file_path FROM images WHERE file_hash = ?";
-                    String updateSql = "UPDATE images SET file_path = ? WHERE id = ?";
-                    String checkExistsSql = "SELECT 1 FROM images WHERE file_path = ?";
-
-                    try (PreparedStatement findStmt = conn.prepareStatement(findSql);
-                         PreparedStatement updateStmt = conn.prepareStatement(updateSql);
-                         PreparedStatement checkExistsStmt = conn.prepareStatement(checkExistsSql)) {
-
-                        int count = 0;
-                        int skipped = 0;
-
-                        for (File f : files) {
-                            String relPath = relativizePath(f);
-                            checkExistsStmt.setString(1, relPath);
-                            if (checkExistsStmt.executeQuery().next()) {
-                                skipped++;
-                                continue;
-                            }
-
-                            String hash = calculateHash(f);
-                            if (hash == null) continue;
-
-                            findStmt.setString(1, hash);
-                            ResultSet rs = findStmt.executeQuery();
-
-                            if (rs.next()) {
-                                int id = rs.getInt("id");
-                                updateStmt.setString(1, relPath);
-                                updateStmt.setInt(2, id);
-                                updateStmt.addBatch();
-                                count++;
-                            }
-
-                            if (count > 0 && count % 100 == 0) {
-                                updateStmt.executeBatch();
-                                conn.commit();
-                            }
-                        }
-                        updateStmt.executeBatch();
-                        conn.commit();
-                        System.out.println("Recovered " + count + " moved files. Skipped " + skipped + " existing.");
-                    }
-                } finally {
-                    writeLock.unlock();
-                }
-                return null;
+        boolean success = false;
+        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.MOVE_TO_TRASH)) {
+            try {
+                success = Desktop.getDesktop().moveToTrash(file);
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
             }
-        };
-        new Thread(task).start();
-    }
+        } else {
+            return false;
+        }
 
-    private void walk(File dir, List<File> results) {
-        File[] list = dir.listFiles();
-        if (list != null) {
-            for (File f : list) {
-                if (f.isDirectory()) walk(f, results);
-                else {
-                    String n = f.getName().toLowerCase();
-                    if (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".webp") || n.endsWith(".jpeg")) {
-                        results.add(f);
-                    }
+        if (success) {
+            writeLock.lock();
+            try {
+                String relPath = relativizePath(file);
+                String sql = "DELETE FROM images WHERE file_path = ?";
+                try (Connection conn = db.connect();
+                     PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setString(1, relPath);
+                    pstmt.executeUpdate();
                 }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            } finally {
+                writeLock.unlock();
             }
         }
+        return success;
     }
 
     private String calculateHash(File file) {
@@ -265,7 +226,7 @@ public class UserDataManager {
     }
 
     // ------------------------------------------------------------------------
-    // Image Data Management (Rating, Starred, Folders)
+    // Image Properties & Folders
     // ------------------------------------------------------------------------
 
     public List<File> getPinnedFolders() {
@@ -327,7 +288,7 @@ public class UserDataManager {
         if (file == null) return 0;
         String sql = "SELECT rating FROM images WHERE file_path = ?";
         try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, file.getAbsolutePath());
+            pstmt.setString(1, relativizePath(file));
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) return rs.getInt("rating");
         } catch (Exception e) {
@@ -341,7 +302,7 @@ public class UserDataManager {
         int r = Math.max(0, Math.min(5, rating));
         String sql = "UPDATE images SET rating = ? WHERE id = ?";
         try {
-            int id = db.getOrCreateImageId(file.getAbsolutePath());
+            int id = getOrCreateImageIdInternal(file);
             try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setInt(1, r);
                 pstmt.setInt(2, id);
@@ -350,65 +311,6 @@ public class UserDataManager {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    public void addStar(File file) {
-        if (file == null) return;
-        writeLock.lock();
-        try {
-            int imageId = getOrCreateImageIdInternal(file);
-            String sql = "UPDATE images SET is_starred = 1 WHERE id = ?";
-            try (Connection conn = db.connect();
-                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setInt(1, imageId);
-                pstmt.executeUpdate();
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
-    public void removeStar(File file) {
-        if (file == null) return;
-        writeLock.lock();
-        try {
-            String sql = "UPDATE images SET is_starred = 0 WHERE file_path = ?";
-            try (Connection conn = db.connect();
-                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, relativizePath(file));
-                pstmt.executeUpdate();
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
-    public boolean isStarred(File file) {
-        if (file == null) return false;
-        readLock.lock();
-        try {
-            String sql = "SELECT is_starred FROM images WHERE file_path = ?";
-            try (Connection conn = db.connect();
-                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, relativizePath(file));
-                ResultSet rs = pstmt.executeQuery();
-                if (rs.next()) return rs.getBoolean("is_starred");
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-            return false;
-        } finally {
-            readLock.unlock();
-        }
-    }
-
-    public void toggleStar(File file) {
-        if (isStarred(file)) removeStar(file);
-        else addStar(file);
     }
 
     public List<File> getStarredFilesList() {
@@ -420,7 +322,7 @@ public class UserDataManager {
                  Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery(sql)) {
                 while (rs.next()) {
-                    File f = resolvePath(rs.getString("path"));
+                    File f = resolvePath(rs.getString("file_path"));
                     if (f != null && f.exists()) result.add(f);
                 }
             } catch (SQLException e) {
@@ -456,33 +358,6 @@ public class UserDataManager {
         }
     }
 
-    public void removeTag(File file, String tag) {
-        if (file == null || tag == null) return;
-        writeLock.lock();
-        try {
-            String relPath = relativizePath(file);
-            String sql = """
-                        DELETE FROM image_tags 
-                        WHERE tag = ? 
-                        AND image_id = (SELECT id FROM images WHERE file_path = ?)
-                    """;
-            try (Connection conn = db.connect();
-                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, tag);
-                pstmt.setString(2, relPath);
-                int affected = pstmt.executeUpdate();
-                if (affected > 0) {
-                    int id = getOrCreateImageIdInternal(file);
-                    updateFtsIndex(id);
-                }
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
     public Set<String> getTags(File file) {
         readLock.lock();
         try {
@@ -510,7 +385,7 @@ public class UserDataManager {
     }
 
     // ------------------------------------------------------------------------
-    // Metadata Cache & FTS Coordination
+    // Metadata Management
     // ------------------------------------------------------------------------
 
     public boolean hasCachedMetadata(File file) {
@@ -714,62 +589,34 @@ public class UserDataManager {
         }
     }
 
-    public void removeImageFromCollection(String collectionName, File file) {
-        if (collectionName == null || file == null) return;
-        writeLock.lock();
-        try {
-            String relPath = relativizePath(file);
+    public List<File> getFilesFromCollection(String collectionName) {
+        readLock.lock();
+        List<File> results = new ArrayList<>();
+        try (Connection conn = db.connect()) {
             String sql = """
-                        DELETE FROM collection_images 
-                        WHERE collection_id = (SELECT id FROM collections WHERE name = ?)
-                        AND image_id = (SELECT id FROM images WHERE file_path = ?)
+                        SELECT i.file_path 
+                        FROM images i
+                        JOIN collection_images ci ON i.id = ci.image_id
+                        JOIN collections c ON ci.collection_id = c.id
+                        WHERE c.name = ?
+                        ORDER BY ci.added_at DESC
                     """;
-            try (Connection conn = db.connect();
-                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, collectionName);
-                pstmt.setString(2, relPath);
-                pstmt.executeUpdate();
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    File f = resolvePath(rs.getString("file_path"));
+                    if (f != null && f.exists()) {
+                        results.add(f);
+                    }
+                }
             }
         } catch (SQLException e) {
             e.printStackTrace();
         } finally {
-            writeLock.unlock();
+            readLock.unlock();
         }
-    }
-
-    public Task<List<File>> getImagesInCollection(String collectionName) {
-        return new Task<>() {
-            @Override
-            protected List<File> call() {
-                readLock.lock();
-                List<File> results = new ArrayList<>();
-                try (Connection conn = db.connect()) {
-                    String sql = """
-                                SELECT i.file_path 
-                                FROM images i
-                                JOIN collection_images ci ON i.id = ci.image_id
-                                JOIN collections c ON ci.collection_id = c.id
-                                WHERE c.name = ?
-                                ORDER BY ci.added_at DESC
-                            """;
-                    try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                        pstmt.setString(1, collectionName);
-                        ResultSet rs = pstmt.executeQuery();
-                        while (rs.next()) {
-                            File f = resolvePath(rs.getString("file_path"));
-                            if (f != null && f.exists()) {
-                                results.add(f);
-                            }
-                        }
-                    }
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                } finally {
-                    readLock.unlock();
-                }
-                return results;
-            }
-        };
+        return results;
     }
 
     // ------------------------------------------------------------------------
