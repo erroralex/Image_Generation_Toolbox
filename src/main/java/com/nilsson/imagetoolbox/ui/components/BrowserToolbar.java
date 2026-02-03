@@ -3,152 +3,162 @@ package com.nilsson.imagetoolbox.ui.components;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.StringProperty;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import org.kordamp.ikonli.javafx.FontIcon;
-
-import java.util.List;
 
 /**
  <h2>BrowserToolbar</h2>
  <p>
- A custom JavaFX {@link ToolBar} designed for the Image Toolbox library browser.
- This component provides user interface controls for searching, filtering, and
- toggling between different view modes (Grid and Single view).
+ A floating "Pill" style toolbar containing search, filters, and view controls.
  </p>
- * <h3>Key UI Components:</h3>
+ <h3>Refactoring Notes:</h3>
  <ul>
- <li><b>Search Field:</b> A {@link TextField} bidirectionally bound to a search query property.</li>
- <li><b>Filtering Dropdowns:</b> {@link ComboBox} elements for filtering the library by Model, Sampler, and LoRA.</li>
- <li><b>Size Slider:</b> A {@link Slider} that controls the visual scale of image cards in grid mode.</li>
- <li><b>View Controls:</b> Buttons to switch between gallery and detailed single-image perspectives.</li>
+ <li><b>Design:</b> Now acts as a centered floating pill (max-width 920px).</li>
+ <li><b>Search:</b> Added a "Clear" (X) button inside the search field.</li>
  </ul>
- * <h3>Interactivity:</h3>
- <p>
- The toolbar utilizes functional interfaces ({@link Runnable}) to delegate actions back to
- the parent controller or ViewModel, ensuring a clean separation of concerns. Properties
- for search and filters are bound to allow the UI to reflect the state of the underlying data model.
- </p>
  */
-public class BrowserToolbar extends ToolBar {
-
-    // ------------------------------------------------------------------------
-    // UI Components
-    // ------------------------------------------------------------------------
+public class BrowserToolbar extends HBox {
 
     private final Slider sizeSlider;
     private final TextField searchField;
     private final Button gridBtn;
     private final Button singleBtn;
 
-    // ------------------------------------------------------------------------
-    // Action Delegates
-    // ------------------------------------------------------------------------
-
     private Runnable onGridAction;
     private Runnable onSingleAction;
     private Runnable onSearchEnter;
 
-    // ------------------------------------------------------------------------
-    // Constructor
-    // ------------------------------------------------------------------------
-
     public BrowserToolbar(StringProperty searchQuery,
-                          List<String> models, ObjectProperty<String> selectedModel,
-                          List<String> samplers, ObjectProperty<String> selectedSampler,
-                          List<String> loras, ObjectProperty<String> selectedLora) {
+                          ObservableList<String> models, ObjectProperty<String> selectedModel,
+                          ObservableList<String> samplers, ObjectProperty<String> selectedSampler,
+                          ObservableList<String> loras, ObjectProperty<String> selectedLora) {
 
         this.getStyleClass().add("browser-toolbar");
+        this.setAlignment(Pos.CENTER_LEFT);
+        this.setSpacing(12);
+        this.setPadding(new Insets(6, 16, 6, 16));
 
-        // Prevent full-screen expansion
-        this.setMinHeight(Region.USE_PREF_SIZE);
-        this.setMaxHeight(Region.USE_PREF_SIZE);
+        // Critical: Constrain width to make it a "Pill" rather than a full bar
+        this.setMaxWidth(920);
+        this.setPickOnBounds(true); // Ensure clicks on the empty space of the pill are caught
 
-        // --- Search Section ---
+        // ====================================================================
+        // 1. SEARCH SECTION (With Clear Button)
+        // ====================================================================
+        StackPane searchContainer = new StackPane();
+        searchContainer.getStyleClass().add("search-container");
+        searchContainer.setAlignment(Pos.CENTER_LEFT);
+
         searchField = new TextField();
-        searchField.setPromptText("Search prompt...");
-        searchField.getStyleClass().add("search-field");
-        searchField.setPrefWidth(300);
+        searchField.setPromptText("Search...");
+        searchField.getStyleClass().add("pill-search-field");
+        searchField.setPrefWidth(220);
+
+        // Clear Button (X)
+        Button clearBtn = new Button();
+        clearBtn.getStyleClass().add("search-clear-button");
+        FontIcon closeIcon = new FontIcon("fa-times-circle");
+        closeIcon.setIconSize(14);
+        clearBtn.setGraphic(closeIcon);
+        clearBtn.setCursor(javafx.scene.Cursor.HAND);
+        clearBtn.setVisible(false); // Hidden by default
+        StackPane.setAlignment(clearBtn, Pos.CENTER_RIGHT);
+        StackPane.setMargin(clearBtn, new Insets(0, 5, 0, 0));
+
+        // Logic
         searchField.textProperty().bindBidirectional(searchQuery);
+        searchField.textProperty().addListener((obs, old, val) ->
+                clearBtn.setVisible(val != null && !val.isEmpty())
+        );
+
+        clearBtn.setOnAction(e -> {
+            searchField.setText("");
+            searchField.requestFocus();
+        });
+
         searchField.setOnAction(e -> {
             if (onSearchEnter != null) onSearchEnter.run();
         });
 
-        // --- View Mode Section ---
-        gridBtn = createButton("fa-th-large", "Gallery View");
-        gridBtn.setOnAction(e -> {
-            if (onGridAction != null) onGridAction.run();
-        });
+        searchContainer.getChildren().addAll(searchField, clearBtn);
 
-        singleBtn = createButton("fa-square-o", "Single View");
-        singleBtn.setOnAction(e -> {
-            if (onSingleAction != null) onSingleAction.run();
-        });
-
-        // --- Grid Card Sizing ---
-        sizeSlider = new Slider(100, 400, 160);
-        sizeSlider.setPrefWidth(120);
-        sizeSlider.setVisible(false);
-
-        // --- Filter Section ---
+        // ====================================================================
+        // 2. FILTERS SECTION
+        // ====================================================================
         ComboBox<String> modelBox = createCombo("Model", models, selectedModel);
         ComboBox<String> samplerBox = createCombo("Sampler", samplers, selectedSampler);
         ComboBox<String> loraBox = createCombo("LoRA", loras, selectedLora);
 
-        // Layout Spacer
+        // ====================================================================
+        // 3. CONTROLS SECTION
+        // ====================================================================
+        HBox viewControls = new HBox(8);
+        viewControls.setAlignment(Pos.CENTER_RIGHT);
+
+        sizeSlider = new Slider(100, 400, 160);
+        sizeSlider.setPrefWidth(100);
+        sizeSlider.setVisible(false);
+
+        gridBtn = createButton("fa-th-large", "Gallery");
+        gridBtn.setOnAction(e -> {
+            if (onGridAction != null) onGridAction.run();
+        });
+
+        singleBtn = createButton("fa-square-o", "Single");
+        singleBtn.setOnAction(e -> {
+            if (onSingleAction != null) onSingleAction.run();
+        });
+
+        viewControls.getChildren().addAll(sizeSlider, new Separator(javafx.geometry.Orientation.VERTICAL), gridBtn, singleBtn);
+
+        // ====================================================================
+        // ASSEMBLE
+        // ====================================================================
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        this.getItems().addAll(
-                new Label("Search:"), searchField,
-                new Separator(),
-                new Label("Filter:"), modelBox, samplerBox, loraBox,
-                spacer,
-                sizeSlider,
-                gridBtn, singleBtn
-        );
+        this.getChildren().addAll(searchContainer, modelBox, samplerBox, loraBox, spacer, viewControls);
     }
-
-    // ------------------------------------------------------------------------
-    // Helper Methods
-    // ------------------------------------------------------------------------
 
     private Button createButton(String iconCode, String tooltip) {
         Button btn = new Button();
         btn.getStyleClass().add("toolbar-button");
         FontIcon icon = new FontIcon(iconCode);
-        icon.setIconSize(18);
+        icon.setIconSize(15);
         btn.setGraphic(icon);
         btn.setTooltip(new Tooltip(tooltip));
         return btn;
     }
 
-    private ComboBox<String> createCombo(String prompt, List<String> items, ObjectProperty<String> boundProperty) {
+    private ComboBox<String> createCombo(String prompt, ObservableList<String> items, ObjectProperty<String> boundProperty) {
         ComboBox<String> box = new ComboBox<>();
-        box.getItems().add("");
-        box.getItems().addAll(items);
+        box.setItems(items);
         box.setPromptText(prompt);
+        box.setPrefWidth(110); // Slightly compact
 
-        if (boundProperty.get() != null) box.setValue(boundProperty.get());
+        if (boundProperty.get() != null) {
+            box.setValue(boundProperty.get());
+        }
 
-        // Listener to update ViewModel
         box.valueProperty().addListener((o, old, newVal) -> boundProperty.set(newVal));
 
-        // Listener to update View if ViewModel changes externally
         boundProperty.addListener((o, old, newVal) -> {
-            if (newVal != null && !newVal.equals(box.getValue())) {
+            if (newVal == null) {
+                box.getSelectionModel().clearSelection();
+            } else if (!newVal.equals(box.getValue())) {
                 box.setValue(newVal);
             }
         });
 
         return box;
     }
-
-    // ------------------------------------------------------------------------
-    // Public API / Getters & Setters
-    // ------------------------------------------------------------------------
 
     public DoubleProperty cardSizeProperty() {
         return sizeSlider.valueProperty();

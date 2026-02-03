@@ -27,36 +27,10 @@ import java.util.concurrent.Future;
 
 /**
  <h2>ImageBrowserView</h2>
- <p>
- The primary container and controller for the Image Toolbox user interface.
- This class implements the <b>View</b> layer in the MVVM pattern, coordinating
- navigation, image rendering, and sidebar interactions.
- </p>
-
- <h3>Key UI Features:</h3>
- <ul>
- <li><b>View Switching:</b> Seamlessly toggles between {@code BROWSER} (single image + filmstrip),
- {@code GALLERY} (grid), and {@code LIST} modes.</li>
- <li><b>Dynamic Inspector:</b> A slide-out {@link MetadataSidebar} that can be either
- a floating drawer or a docked side panel.</li>
- <li><b>Async Loading:</b> Manages a dedicated {@link ExecutorService} for thumbnail
- generation, ensuring the UI thread remains responsive during library scans.</li>
- <li><b>Gesture & Input:</b> Supports advanced selection logic (Shift/Ctrl), keyboard
- hotkeys for navigation, and drag-and-drop folder loading.</li>
- </ul>
-
-
  */
 public class ImageBrowserView extends StackPane implements JavaView<ImageBrowserViewModel>, Initializable {
 
-    /**
-     Enumeration of supported viewing perspectives.
-     */
     public enum ViewMode {BROWSER, GALLERY, LIST}
-
-    // ------------------------------------------------------------------------
-    // State & Dependencies
-    // ------------------------------------------------------------------------
 
     @InjectViewModel
     private ImageBrowserViewModel viewModel;
@@ -77,10 +51,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private boolean isDrawerOpen = false;
     private boolean isDocked = false;
 
-    // ------------------------------------------------------------------------
-    // UI Components
-    // ------------------------------------------------------------------------
-
     private final BorderPane baseLayer;
     private FolderNav folderNav;
     private BrowserToolbar toolbar;
@@ -92,10 +62,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private ListView<File> fileListView;
     private Region drawerBackdrop;
     private StackPane dropOverlay;
-
-    // ------------------------------------------------------------------------
-    // Lifecycle & Initialization
-    // ------------------------------------------------------------------------
 
     public ImageBrowserView() {
         this.getStyleClass().add("image-browser-view");
@@ -136,8 +102,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         });
 
         StackPane toolbarContainer = new StackPane(toolbar);
-        toolbarContainer.setAlignment(Pos.CENTER);
-        toolbarContainer.setPadding(new Insets(10, 0, 10, 0));
+        toolbarContainer.setAlignment(Pos.CENTER); // Ensures floating centered
+        toolbarContainer.setPadding(new Insets(15, 0, 10, 0)); // Spacing from top
         toolbarContainer.setStyle("-fx-background-color: transparent;");
         toolbarContainer.setPickOnBounds(false);
         toolbarContainer.setMaxHeight(Region.USE_PREF_SIZE);
@@ -192,10 +158,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             this.requestFocus();
         });
     }
-
-    // ------------------------------------------------------------------------
-    // UI Setup Methods
-    // ------------------------------------------------------------------------
 
     private void setupComponents() {
         this.folderNav = new FolderNav(new FolderNav.FolderNavListener() {
@@ -308,10 +270,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         drawerBackdrop.setOnMouseClicked(e -> closeDrawer());
     }
 
-    // ------------------------------------------------------------------------
-    // View Management & Navigation
-    // ------------------------------------------------------------------------
-
     public void setViewMode(ViewMode mode) {
         this.currentViewMode = mode;
         centerContainer.getChildren().clear();
@@ -370,10 +328,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             handleSelectionClick(currentFiles.get(newIndex), false, false);
         }
     }
-
-    // ------------------------------------------------------------------------
-    // Selection & Sidebar Logic
-    // ------------------------------------------------------------------------
 
     private void onGalleryFileSelected(File file, Boolean doubleClick) {
         handleSelectionClick(file, false, false);
@@ -453,10 +407,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             tt.play();
         }
     }
-
-    // ------------------------------------------------------------------------
-    // Event Handlers
-    // ------------------------------------------------------------------------
 
     private void setupInputHandlers() {
         this.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
