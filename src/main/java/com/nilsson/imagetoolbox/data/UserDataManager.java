@@ -1,6 +1,10 @@
 package com.nilsson.imagetoolbox.data;
 
 import javafx.concurrent.Task;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.inject.Inject;
 import java.awt.*;
 import java.io.File;
 import java.io.FileInputStream;
@@ -16,28 +20,17 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  <h2>UserDataManager</h2>
  <p>
  This class serves as the primary data access layer for the Image Toolbox application.
- It manages persistent user data, including file locations, metadata caching, tagging,
- and virtual collections.
  </p>
- * <h3>Key Features:</h3>
+
+ <h3>Refactoring Notes:</h3>
  <ul>
- <li><b>Path Normalization:</b> Handles conversion between absolute system paths and
- database-friendly relative paths to ensure library portability.</li>
- <li><b>Concurrency Control:</b> Implements a {@link ReadWriteLock} strategy to ensure
- thread-safe access to the underlying SQLite database during heavy scan or search operations.</li>
- <li><b>Advanced Search:</b> Leverages SQLite's FTS5 (Full-Text Search) for rapid
- global querying across tags and metadata.</li>
- <li><b>File Integrity:</b> Utilizes SHA-256 hashing to track files even if they are
- renamed or moved within the library structure.</li>
- <li><b>Integration:</b> Supports system-level operations like moving files to the
- OS trash while keeping the database synchronized.</li>
+ <li><b>Bug Fix:</b> <code>resolvePath</code> now correctly identifies absolute paths (for Pinned Folders) using string analysis instead of disk I/O.</li>
+ <li><b>Performance:</b> Maintains O(1) resolution speed for search loops.</li>
  </ul>
  */
 public class UserDataManager {
 
-    // ------------------------------------------------------------------------
-    // Fields & State
-    // ------------------------------------------------------------------------
+    private static final Logger logger = LoggerFactory.getLogger(UserDataManager.class);
 
     private final DatabaseService db;
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
@@ -45,33 +38,34 @@ public class UserDataManager {
     private final Lock writeLock = rwLock.writeLock();
     private final File libraryRoot;
 
-    // ------------------------------------------------------------------------
-    // Constructor & Lifecycle
-    // ------------------------------------------------------------------------
-
-    @javax.inject.Inject
+    @Inject
     public UserDataManager(DatabaseService db) {
         this.db = db;
         this.libraryRoot = new File(System.getProperty("user.dir")).getAbsoluteFile();
+        logger.info("UserDataManager initialized. Library root: {}", libraryRoot);
     }
 
     public void shutdown() {
+        logger.info("Shutting down UserDataManager...");
         db.shutdown();
     }
 
     // ------------------------------------------------------------------------
-    // Path Normalization Logic
+    // Path Normalization Logic (FIXED)
     // ------------------------------------------------------------------------
 
     private File resolvePath(String dbPath) {
         if (dbPath == null) return null;
-        String systemPath = dbPath.replace("/", File.separator);
-        File f = new File(libraryRoot, systemPath);
-        if (!f.exists()) {
-            File abs = new File(dbPath);
-            if (abs.exists()) return abs;
+
+        // 1. Check if the path stored in DB is already absolute (e.g. Pinned Folders outside library)
+        File potentiallyAbsolute = new File(dbPath);
+        if (potentiallyAbsolute.isAbsolute()) {
+            return potentiallyAbsolute;
         }
-        return f;
+
+        // 2. Otherwise, treat as relative to library root
+        String systemPath = dbPath.replace("/", File.separator);
+        return new File(libraryRoot, systemPath);
     }
 
     private String relativizePath(File file) {
@@ -83,7 +77,8 @@ public class UserDataManager {
                 String rel = rootPath.relativize(filePath).toString();
                 return rel.replace("\\", "/");
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.warn("Failed to relativize path for file: {}", file, e);
         }
         return file.getAbsolutePath().replace("\\", "/");
     }
@@ -107,7 +102,7 @@ public class UserDataManager {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error fetching distinct metadata values for key: {}", key, e);
         } finally {
             readLock.unlock();
         }
@@ -118,6 +113,7 @@ public class UserDataManager {
         return new Task<>() {
             @Override
             protected List<File> call() throws Exception {
+                long startTime = System.currentTimeMillis();
                 readLock.lock();
                 try (Connection conn = db.connect()) {
                     List<File> results = new ArrayList<>();
@@ -157,12 +153,18 @@ public class UserDataManager {
                         ResultSet rs = pstmt.executeQuery();
                         while (rs.next()) {
                             File f = resolvePath(rs.getString("file_path"));
-                            if (f != null && f.exists()) {
+                            if (f != null) {
                                 results.add(f);
                             }
                         }
                     }
+
+                    logger.debug("Search completed in {}ms. Found {} files.",
+                            (System.currentTimeMillis() - startTime), results.size());
                     return results;
+                } catch (SQLException e) {
+                    logger.error("SQL Error during file search", e);
+                    throw e;
                 } finally {
                     readLock.unlock();
                 }
@@ -182,7 +184,7 @@ public class UserDataManager {
             try {
                 success = Desktop.getDesktop().moveToTrash(file);
             } catch (Exception e) {
-                e.printStackTrace();
+                logger.error("Failed to move file to trash: {}", file, e);
                 return false;
             }
         } else {
@@ -200,7 +202,7 @@ public class UserDataManager {
                     pstmt.executeUpdate();
                 }
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Failed to delete file record from DB: {}", file, e);
             } finally {
                 writeLock.unlock();
             }
@@ -221,6 +223,7 @@ public class UserDataManager {
             for (byte b : bytes) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) {
+            logger.error("Error calculating hash for file: {}", file, e);
             return null;
         }
     }
@@ -239,10 +242,11 @@ public class UserDataManager {
                  ResultSet rs = stmt.executeQuery(sql)) {
                 while (rs.next()) {
                     File f = resolvePath(rs.getString("path"));
+                    // We check exists() here because pinned folders are few and specific
                     if (f != null && f.exists()) result.add(f);
                 }
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error fetching pinned folders", e);
             }
             return result;
         } finally {
@@ -260,7 +264,7 @@ public class UserDataManager {
                 pstmt.setString(1, relativizePath(folder));
                 pstmt.executeUpdate();
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error adding pinned folder: {}", folder, e);
             }
         } finally {
             writeLock.unlock();
@@ -277,7 +281,7 @@ public class UserDataManager {
                 pstmt.setString(1, relativizePath(folder));
                 pstmt.executeUpdate();
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error removing pinned folder: {}", folder, e);
             }
         } finally {
             writeLock.unlock();
@@ -292,7 +296,7 @@ public class UserDataManager {
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) return rs.getInt("rating");
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error fetching rating for file: {}", file, e);
         }
         return 0;
     }
@@ -309,7 +313,7 @@ public class UserDataManager {
                 pstmt.executeUpdate();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error setting rating for file: {}", file, e);
         }
     }
 
@@ -326,7 +330,7 @@ public class UserDataManager {
                     if (f != null && f.exists()) result.add(f);
                 }
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error fetching starred files", e);
             }
             return result;
         } finally {
@@ -352,7 +356,7 @@ public class UserDataManager {
             }
             updateFtsIndex(imageId);
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error adding tag {} to file {}", tag, file, e);
         } finally {
             writeLock.unlock();
         }
@@ -376,7 +380,7 @@ public class UserDataManager {
                     tags.add(rs.getString("tag"));
                 }
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error fetching tags for file: {}", file, e);
             }
             return tags;
         } finally {
@@ -398,7 +402,7 @@ public class UserDataManager {
                 pstmt.setString(1, relativizePath(file));
                 return pstmt.executeQuery().next();
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error checking metadata cache for file: {}", file, e);
             }
             return false;
         } finally {
@@ -430,7 +434,7 @@ public class UserDataManager {
             }
             updateFtsIndex(imageId);
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error caching metadata for file: {}", file, e);
         } finally {
             writeLock.unlock();
         }
@@ -484,7 +488,7 @@ public class UserDataManager {
                     meta.put(rs.getString("key"), rs.getString("value"));
                 }
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error retrieving cached metadata for file: {}", file, e);
             }
             return meta;
         } finally {
@@ -514,10 +518,6 @@ public class UserDataManager {
         throw new SQLException("Failed to get ID for " + relPath);
     }
 
-    // ------------------------------------------------------------------------
-    // Virtual Collections Management
-    // ------------------------------------------------------------------------
-
     public List<String> getCollections() {
         readLock.lock();
         try {
@@ -529,7 +529,7 @@ public class UserDataManager {
                     names.add(rs.getString("name"));
                 }
             } catch (SQLException e) {
-                e.printStackTrace();
+                logger.error("Error fetching collections", e);
             }
             return names;
         } finally {
@@ -545,8 +545,9 @@ public class UserDataManager {
             pstmt.setString(1, name.trim());
             pstmt.setLong(2, System.currentTimeMillis());
             pstmt.executeUpdate();
+            logger.info("Created collection: {}", name);
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error creating collection: {}", name, e);
         } finally {
             writeLock.unlock();
         }
@@ -559,8 +560,9 @@ public class UserDataManager {
              PreparedStatement pstmt = conn.prepareStatement("DELETE FROM collections WHERE name = ?")) {
             pstmt.setString(1, name);
             pstmt.executeUpdate();
+            logger.info("Deleted collection: {}", name);
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error deleting collection: {}", name, e);
         } finally {
             writeLock.unlock();
         }
@@ -583,7 +585,7 @@ public class UserDataManager {
                 pstmt.executeUpdate();
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error adding image {} to collection {}", file, collectionName, e);
         } finally {
             writeLock.unlock();
         }
@@ -612,16 +614,12 @@ public class UserDataManager {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error fetching files from collection: {}", collectionName, e);
         } finally {
             readLock.unlock();
         }
         return results;
     }
-
-    // ------------------------------------------------------------------------
-    // Settings & Persistence
-    // ------------------------------------------------------------------------
 
     public String getSetting(String key, String defaultValue) {
         readLock.lock();
@@ -647,7 +645,7 @@ public class UserDataManager {
             pstmt.setString(2, value);
             pstmt.executeUpdate();
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Error saving setting: {} = {}", key, value, e);
         } finally {
             writeLock.unlock();
         }

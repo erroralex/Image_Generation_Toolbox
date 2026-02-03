@@ -45,6 +45,34 @@
 }
 
 /* ===================================================================================
+ * NEW: SEARCH PILL STYLING (UPDATED)
+ * ===================================================================================
+ */
+
+.search-pill {
+    -fx-background-color: rgba(255, 255, 255, 0.07);
+    -fx-background-radius: 50px;
+    -fx-border-color: rgba(255, 255, 255, 0.1);
+    -fx-border-radius: 50px;
+    -fx-border-width: 1px;
+    -fx-text-fill: white;
+    -fx-font-size: 13px; /* Slightly smaller text for slimmer bar */
+    -fx-padding: 4 15 4 15; /* Slimmer padding: Top/Bottom 4px, Left/Right 15px */
+    -fx-alignment: center-left; /* Center-left alignment for text input */
+}
+
+.search-pill:focused {
+    -fx-background-color: rgba(255, 255, 255, 0.12);
+    -fx-border-color: -app-cyan;
+    -fx-effect: -glow-soft;
+}
+
+.search-pill .prompt-text {
+    -fx-text-fill: -text-muted;
+}
+
+
+/* ===================================================================================
  * 2. LAYOUT CONTAINERS
  * ===================================================================================
  */
@@ -440,12 +468,18 @@
  * ===================================================================================
  */
 
-.browser-toolbar {
-    -fx-background-color: -app-bg-panel;
-    -fx-padding: 5 10 5 10;
-    -fx-spacing: 10;
-    -fx-pref-height: 45;
-    -fx-min-height: 45;
+browser-toolbar {
+    -fx-background-color: rgba(18, 20, 26, 0.95); /* Deep dark semi-transparent */
+    -fx-background-radius: 30px; /* Fully rounded ends */
+    -fx-border-color: rgba(255, 255, 255, 0.1);
+    -fx-border-radius: 30px;
+    -fx-border-width: 1px;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.5), 15, 0, 0, 5);
+}
+
+.browser-toolbar:hover {
+    -fx-border-color: rgba(255, 255, 255, 0.2);
+    -fx-background-color: rgba(21, 24, 32, 1.0);
 }
 
 .toolbar-button {
@@ -470,13 +504,6 @@
     -fx-border-color: -app-grad-primary;
     -fx-border-width: 1px;
     -fx-border-radius: 3;
-}
-
-.search-field {
-    -fx-background-color: -app-bg-deepest;
-    -fx-text-fill: white;
-    -fx-background-radius: 4;
-    -fx-padding: 4 8 4 8;
 }
 
 .command-palette {
@@ -531,4 +558,42 @@
     -fx-border-width: 3;
     -fx-border-style: dashed;
     -fx-border-radius: 20;
+}
+
+/* ===================================================================================
+ * SEARCH FIELD WITH INTEGRATED BUTTON
+ * ===================================================================================
+ */
+
+.pill-search-field {
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-background-radius: 15px;
+    -fx-border-color: transparent;
+    -fx-border-radius: 15px;
+    -fx-text-fill: white;
+    -fx-padding: 4 28 4 10; /* Right padding reserved for X button */
+    -fx-font-size: 13px;
+}
+
+.pill-search-field:focused {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-border-color: -app-cyan;
+    -fx-effect: dropshadow(three-pass-box, rgba(69, 162, 158, 0.2), 5, 0, 0, 0);
+}
+
+.search-clear-button {
+    -fx-background-color: transparent;
+    -fx-padding: 2;
+    -fx-cursor: hand;
+    -fx-alignment: center;
+}
+
+.search-clear-button .ikonli-font-icon {
+    -fx-fill: #666;
+    -fx-icon-color: #666;
+}
+
+.search-clear-button:hover .ikonli-font-icon {
+    -fx-fill: white;
+    -fx-icon-color: white;
 }

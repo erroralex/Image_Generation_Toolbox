@@ -10,6 +10,8 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
 import javafx.concurrent.Task;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import java.io.File;
@@ -20,32 +22,10 @@ import java.util.stream.Collectors;
 
 /**
  <h2>ImageBrowserViewModel</h2>
- <p>
- The primary ViewModel for the application's browser interface. It bridges the data layer
- ({@link UserDataManager}) and the view, managing state for file navigation, selection,
- and advanced filtering based on AI generation metadata.
- </p>
-
- <h3>Key Features:</h3>
- <ul>
- <li><b>Asynchronous Processing:</b> Offloads heavy I/O operations, such as file scanning
- and metadata extraction, to a background {@link ExecutorService} to keep the UI responsive.</li>
- <li><b>Advanced Filtering:</b> Implements a {@link FilteredList} that dynamically
- responds to text queries and metadata chip selections (Model, Sampler, LoRA).</li>
- <li><b>Metadata Indexing:</b> Maintains a thread-safe {@link ConcurrentHashMap} of
- metadata for the current folder to enable instant searching and filtering.</li>
- <li><b>Collections & Pins:</b> Synchronizes user-defined virtual collections and
- pinned filesystem paths with the persistent data store.</li>
- </ul>
-
- <h3>UI Data Flow:</h3>
- <p>
- The ViewModel exposes {@link ObservableList} and {@link Property} objects that the View
- binds to directly. It uses {@link Platform#runLater} to ensure that data updates
- resulting from background tasks occur on the JavaFX Application Thread.
- </p>
  */
 public class ImageBrowserViewModel implements ViewModel {
+
+    private static final Logger logger = LoggerFactory.getLogger(ImageBrowserViewModel.class);
 
     // ------------------------------------------------------------------------
     // Dependencies
@@ -56,7 +36,7 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ExecutorService executor;
 
     // ------------------------------------------------------------------------
-    // View State & Observable Data
+    // View State
     // ------------------------------------------------------------------------
     private final ObservableList<File> selectedImages = FXCollections.observableArrayList();
     private final ObjectProperty<File> selectedImage = new SimpleObjectProperty<>();
@@ -65,7 +45,7 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObservableList<File> allFolderFiles = FXCollections.observableArrayList();
     private final FilteredList<File> filteredFiles = new FilteredList<>(allFolderFiles, p -> true);
 
-    // CACHES (Critical for performance)
+    // CACHES
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
     private final Map<File, Integer> ratingCache = new ConcurrentHashMap<>();
 
@@ -76,19 +56,19 @@ public class ImageBrowserViewModel implements ViewModel {
 
     // Filter UI Properties
     private final StringProperty searchQuery = new SimpleStringProperty("");
-    private final ObservableList<String> availableModels = FXCollections.observableArrayList("All");
-    private final ObservableList<String> availableSamplers = FXCollections.observableArrayList("All");
-    private final ObservableList<String> loras = FXCollections.observableArrayList("All");
 
-    private final ObjectProperty<String> selectedModel = new SimpleObjectProperty<>("All");
-    private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>("All");
-    private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>("All");
+    // Lists for dropdowns
+    private final ObservableList<String> availableModels = FXCollections.observableArrayList();
+    private final ObservableList<String> availableSamplers = FXCollections.observableArrayList();
+    private final ObservableList<String> loras = FXCollections.observableArrayList();
+
+    // Default to NULL so checkboxes start "unchecked"
+    private final ObjectProperty<String> selectedModel = new SimpleObjectProperty<>(null);
+    private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
+    private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
 
     private final ObservableList<String> collectionList = FXCollections.observableArrayList();
 
-    // ------------------------------------------------------------------------
-    // Constructor & Initialization
-    // ------------------------------------------------------------------------
     @Inject
     public ImageBrowserViewModel(UserDataManager dataManager,
                                  MetadataService metaService,
@@ -109,57 +89,38 @@ public class ImageBrowserViewModel implements ViewModel {
         loadFilters();
     }
 
-    // ------------------------------------------------------------------------
-    // NEW METHODS (Fixing your Compilation Errors)
-    // ------------------------------------------------------------------------
-
-    /**
-     Called by GalleryView to render stars efficiently.
-     Uses a memory cache to avoid hitting the DB 60 times a second.
-     */
     public int getRatingForFile(File file) {
         if (file == null) return 0;
         if (ratingCache.containsKey(file)) {
             return ratingCache.get(file);
         }
-        // Fallback (slow path)
         int r = dataManager.getRating(file);
         ratingCache.put(file, r);
         return r;
     }
 
-    /**
-     Called by GalleryView to display "Model" or other data on the card.
-     */
     public String getMetadataValue(File file, String key) {
         if (file == null || key == null) return "";
         Map<String, String> meta = currentFolderMetadata.get(file);
         return meta != null ? meta.getOrDefault(key, "") : "";
     }
 
-    /**
-     Required by ImageBrowserView for Drag-and-Drop operations.
-     */
     public void addFilesToCollection(String name, List<File> files) {
         executor.submit(() -> files.forEach(f -> dataManager.addImageToCollection(name, f)));
     }
 
-    /**
-     Required by ImageBrowserView for the "Delete" confirmation dialog.
-     */
     public int getSelectionCount() {
         return selectedImages.size();
     }
 
-    // ------------------------------------------------------------------------
-    // Loading & Indexing
-    // ------------------------------------------------------------------------
     public void loadFolder(File folder) {
         if (folder == null || !folder.isDirectory()) return;
         dataManager.setLastFolder(folder);
         currentFolderMetadata.clear();
-        ratingCache.clear(); // Clear cache when changing folders
+        ratingCache.clear();
         searchQuery.set("");
+
+        logger.info("Loading folder: {}", folder.getAbsolutePath());
 
         Task<List<File>> task = new Task<>() {
             @Override
@@ -185,10 +146,8 @@ public class ImageBrowserViewModel implements ViewModel {
                 for (File file : files) {
                     if (isCancelled()) break;
 
-                    // 1. Pre-fetch Rating
                     ratingCache.put(file, dataManager.getRating(file));
 
-                    // 2. Pre-fetch Metadata
                     if (dataManager.hasCachedMetadata(file)) {
                         currentFolderMetadata.put(file, dataManager.getCachedMetadata(file));
                     } else {
@@ -204,27 +163,35 @@ public class ImageBrowserViewModel implements ViewModel {
         executor.submit(indexTask);
     }
 
-    // ------------------------------------------------------------------------
-    // Filtering
-    // ------------------------------------------------------------------------
     private void loadFilters() {
         executor.submit(() -> {
-            List<String> rawModels = databaseService.getDistinctAttribute("Model");
-            List<String> rawSamplers = databaseService.getDistinctAttribute("Sampler");
-            List<String> rawLoras = databaseService.getDistinctAttribute("Loras");
+            try {
+                List<String> rawModels = databaseService.getDistinctAttribute("Model");
+                List<String> rawSamplers = databaseService.getDistinctAttribute("Sampler");
+                List<String> rawLoras = databaseService.getDistinctAttribute("Loras");
 
-            List<String> cleanModels = normalizeList(rawModels, false);
-            List<String> cleanSamplers = normalizeList(rawSamplers, false);
-            List<String> cleanLoras = normalizeList(rawLoras, true);
+                List<String> cleanModels = normalizeList(rawModels, false);
+                List<String> cleanSamplers = normalizeList(rawSamplers, false);
+                List<String> cleanLoras = normalizeList(rawLoras, true);
 
-            Platform.runLater(() -> {
-                availableModels.setAll(cleanModels);
-                availableModels.add(0, "All");
-                availableSamplers.setAll(cleanSamplers);
-                availableSamplers.add(0, "All");
-                loras.setAll(cleanLoras);
-                loras.add(0, "All");
-            });
+                Platform.runLater(() -> {
+                    // Just set the clean lists. No need to add "All" manually if we use NULL for clear.
+                    // But users might want a way to click "All" to clear selection if UI doesn't allow deselection.
+                    // Standard JavaFX ComboBox doesn't deselect easily.
+                    // So we add "All" as an option that resets the filter.
+
+                    availableModels.setAll(cleanModels);
+                    availableModels.add(0, "All");
+
+                    availableSamplers.setAll(cleanSamplers);
+                    availableSamplers.add(0, "All");
+
+                    loras.setAll(cleanLoras);
+                    loras.add(0, "All");
+                });
+            } catch (Exception e) {
+                logger.error("Failed to load filters", e);
+            }
         });
     }
 
@@ -267,6 +234,8 @@ public class ImageBrowserViewModel implements ViewModel {
 
     private List<String> normalizeList(List<String> input, boolean isLora) {
         Set<String> unique = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (input == null) return new ArrayList<>();
+
         for (String item : input) {
             if (item == null || item.isBlank()) continue;
             if (isLora) {
@@ -294,6 +263,7 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     private boolean isMatch(String fileValue, String filterValue) {
+        // Treat NULL or "All" as valid match for everything
         if (filterValue == null || filterValue.equals("All")) return true;
         if (fileValue == null) return false;
         return fileValue.toLowerCase().contains(filterValue.toLowerCase());
@@ -326,7 +296,6 @@ public class ImageBrowserViewModel implements ViewModel {
         activeRating.set(dataManager.getRating(file));
         activeTags.set(dataManager.getTags(file));
 
-        // Cache update
         ratingCache.put(file, activeRating.get());
 
         if (dataManager.hasCachedMetadata(file)) {
@@ -348,16 +317,13 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // User Actions
-    // ------------------------------------------------------------------------
     public void setRating(int rating) {
         activeRating.set(rating);
         List<File> target = new ArrayList<>(selectedImages);
         executor.submit(() -> {
             target.forEach(f -> {
                 dataManager.setRating(f, rating);
-                ratingCache.put(f, rating); // Update Cache
+                ratingCache.put(f, rating);
             });
         });
     }
@@ -379,9 +345,6 @@ public class ImageBrowserViewModel implements ViewModel {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // Getters & Setters
-    // ------------------------------------------------------------------------
     public void search(String query) {
         searchQuery.set(query);
     }
@@ -394,7 +357,6 @@ public class ImageBrowserViewModel implements ViewModel {
         return dataManager.getLastFolder();
     }
 
-    // Collections
     public void refreshCollections() {
         executor.submit(() -> {
             List<String> c = dataManager.getCollections();
@@ -421,12 +383,10 @@ public class ImageBrowserViewModel implements ViewModel {
         executor.submit(() -> targets.forEach(f -> dataManager.addImageToCollection(name, f)));
     }
 
-    // Pins
     public void pinFolder(File f) {
         dataManager.addPinnedFolder(f);
     }
 
-    // FIXED: Renamed from unpinFolder to match View
     public void removePinnedFolder(File f) {
         dataManager.removePinnedFolder(f);
     }
@@ -435,7 +395,6 @@ public class ImageBrowserViewModel implements ViewModel {
         return dataManager.getPinnedFolders();
     }
 
-    // Properties
     public IntegerProperty activeRatingProperty() {
         return activeRating;
     }
