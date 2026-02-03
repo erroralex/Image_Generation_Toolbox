@@ -3,8 +3,7 @@ package com.nilsson.imagetoolbox.main;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
-import com.nilsson.imagetoolbox.data.DatabaseService;
-import com.nilsson.imagetoolbox.data.UserDataManager;
+import com.nilsson.imagetoolbox.data.*;
 import com.nilsson.imagetoolbox.service.MetadataService;
 
 import java.util.concurrent.ExecutorService;
@@ -46,6 +45,9 @@ public class AppModule extends AbstractModule {
         bind(DatabaseService.class).in(Singleton.class);
         bind(UserDataManager.class).in(Singleton.class);
         bind(MetadataService.class).in(Singleton.class);
+        bind(SettingsRepository.class).in(Singleton.class);
+        bind(CollectionRepository.class).in(Singleton.class);
+        bind(ImageRepository.class).in(Singleton.class);
     }
 
     // ------------------------------------------------------------------------
