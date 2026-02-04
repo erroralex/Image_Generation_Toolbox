@@ -40,8 +40,6 @@ import java.util.*;
  <li><b>UI Integration:</b> Provides utility methods to load images into JavaFX
  compatible formats.</li>
  </ul>
-
-
  */
 public class MetadataService {
 
@@ -86,9 +84,31 @@ public class MetadataService {
     public Map<String, String> getExtractedData(File file) {
         Map<String, String> results = new HashMap<>();
 
+        // 1. Physical Extraction (File specific)
         extractPhysicalDimensions(file, results);
 
+        // 2. Text Chunk Extraction (File specific)
         String rawData = findBestMetadataChunk(file);
+
+        // 3. Logic Parsing (Delegated to helper for testability)
+        results.putAll(processRawMetadata(rawData));
+
+        return results;
+    }
+
+    /**
+     Helper method to parse a raw metadata string into structured key-value pairs.
+     <p>
+     This method exposes the parsing logic directly, allowing for unit testing
+     without requiring physical image files.
+     </p>
+
+     @param rawData The raw string found in the image metadata chunks (JSON or Text).
+
+     @return A map of parsed parameters.
+     */
+    public Map<String, String> processRawMetadata(String rawData) {
+        Map<String, String> results = new HashMap<>();
 
         if (rawData == null || rawData.isEmpty()) {
             results.put("Prompt", "No metadata found in this image.");
@@ -241,6 +261,7 @@ public class MetadataService {
         try {
             String cleanJson = json;
 
+            // Basic cleanup for trailing JSON garbage often found in PNGs
             int lastBrace = cleanJson.lastIndexOf("}");
             if (lastBrace != -1 && lastBrace < cleanJson.length() - 1) {
                 cleanJson = cleanJson.substring(0, lastBrace + 1);
@@ -259,13 +280,28 @@ public class MetadataService {
             else if (root.has("meta") && root.get("meta").has("invokeai_metadata")) software = "InvokeAI";
             else if (root.has("uc")) software = "NovelAI";
             else {
-                Iterator<String> keys = root.fieldNames();
-                if (keys.hasNext()) {
-                    String firstKey = keys.next();
-                    if (firstKey.matches("\\d+") && root.get(firstKey).has("class_type")) {
-                        software = "ComfyUI";
-                    } else if (root.has("nodes") && root.has("links")) {
-                        software = "ComfyUI (Workflow)";
+                // Check for ComfyUI API format (wrapped in "prompt" object)
+                if (root.has("prompt") && root.get("prompt").isObject()) {
+                    JsonNode promptNode = root.get("prompt");
+                    Iterator<String> promptKeys = promptNode.fieldNames();
+                    if (promptKeys.hasNext()) {
+                        String firstPk = promptKeys.next();
+                        if (firstPk.matches("\\d+") && promptNode.get(firstPk).has("class_type")) {
+                            software = "ComfyUI";
+                        }
+                    }
+                }
+
+                // Fallback to standard ComfyUI workflow (root keys are node IDs)
+                if ("Unknown".equals(software)) {
+                    Iterator<String> keys = root.fieldNames();
+                    if (keys.hasNext()) {
+                        String firstKey = keys.next();
+                        if (firstKey.matches("\\d+") && root.get(firstKey).has("class_type")) {
+                            software = "ComfyUI";
+                        } else if (root.has("nodes") && root.has("links")) {
+                            software = "ComfyUI (Workflow)";
+                        }
                     }
                 }
             }

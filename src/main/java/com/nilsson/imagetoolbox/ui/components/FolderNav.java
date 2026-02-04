@@ -15,10 +15,23 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- Navigation component displaying a file system tree and Virtual Collections.
- This sidebar component allows users to browse physical drives, access pinned folders,
- view starred images, and manage virtual collections via drag-and-drop operations.
- */
+ A sidebar navigation component that provides a unified interface for physical and virtual file access.
+ * <p>This component manages a hierarchical {@link TreeView} divided into four logical sections:
+ <ul>
+ <li><b>Starred:</b> Quick access to user-flagged favorite items.</li>
+ <li><b>Collections:</b> Virtual groupings of files that exist independently of the filesystem.</li>
+ <li><b>Pinned:</b> User-defined shortcuts to frequently accessed local directories.</li>
+ <li><b>This PC:</b> A lazy-loading representation of the local physical drives.</li>
+ </ul>
+ * <p>Key Features:
+ <ul>
+ <li><b>Lazy Loading:</b> Physical directories are scanned only upon expansion to ensure UI responsiveness.</li>
+ <li><b>Auto-Expansion:</b> Supports programmatic selection and path traversal to specific folders.</li>
+ <li><b>Drag-and-Drop:</b> Facilitates moving files between physical folders and adding them to virtual collections.</li>
+ <li><b>Contextual Actions:</b> Built-in menus for pinning/unpinning and collection management.</li>
+ </ul>
+
+ @version 1.0 */
 public class FolderNav extends VBox {
 
     /**
@@ -60,7 +73,6 @@ public class FolderNav extends VBox {
     private List<File> pinnedFolders = new ArrayList<>();
     private List<String> collections = new ArrayList<>();
 
-    // Auto-expansion state (Stores normalized absolute paths)
     private final Set<String> autoExpandPaths = Collections.synchronizedSet(new HashSet<>());
     private File targetSelection = null;
 
@@ -79,7 +91,6 @@ public class FolderNav extends VBox {
         label.getStyleClass().add("section-header");
         label.setPadding(new Insets(5, 10, 5, 10));
 
-        // --- Tree View Section ---
         treeView = new TreeView<>();
         treeView.setShowRoot(false);
         treeView.getStyleClass().add("transparent-tree");
@@ -116,34 +127,27 @@ public class FolderNav extends VBox {
         refreshTree();
     }
 
-    /**
-     Programmatically expands the tree to the specified folder and selects it.
-     Uses normalized paths to ensure matching works across different inputs.
-     */
     public void selectFolder(File folder) {
         if (folder == null || !folder.exists()) return;
 
         targetSelection = folder;
         autoExpandPaths.clear();
 
-        // Calculate all parents up to the root and store normalized paths
         File current = folder;
         while (current != null) {
             autoExpandPaths.add(normalizePath(current));
             current = current.getParentFile();
         }
 
-        // Trigger expansion starting from the "THIS PC" (Drives) section
         if (treeView.getRoot() != null) {
             for (TreeItem<File> section : treeView.getRoot().getChildren()) {
                 if (DRIVES_SECTION.equals(section.getValue())) {
                     if (!section.isExpanded()) section.setExpanded(true);
 
-                    // Iterate through drives to find the root of our target
                     for (TreeItem<File> drive : section.getChildren()) {
                         String drivePath = normalizePath(drive.getValue());
                         if (autoExpandPaths.contains(drivePath)) {
-                            drive.setExpanded(true); // This triggers the lazy loading chain
+                            drive.setExpanded(true);
                         }
                     }
                     break;
@@ -155,7 +159,6 @@ public class FolderNav extends VBox {
     // --- Private Logic ---
 
     private String normalizePath(File file) {
-        // Normalize separators and case for comparison (Crucial for Windows)
         return file.getAbsolutePath().replace("\\", "/").toLowerCase();
     }
 
@@ -201,7 +204,6 @@ public class FolderNav extends VBox {
             {
                 if (file.isDirectory()) super.getChildren().add(new TreeItem<>());
 
-                // Listener for Lazy Loading
                 expandedProperty().addListener((obs, wasCollapsed, isExpanded) -> {
                     if (isExpanded && isFirstTimeChildren) {
                         isFirstTimeChildren = false;
@@ -223,18 +225,16 @@ public class FolderNav extends VBox {
                             List<TreeItem<File>> loadedChildren = task.getValue();
                             super.getChildren().setAll(loadedChildren);
 
-                            // AUTO-EXPAND LOGIC:
                             for (TreeItem<File> child : loadedChildren) {
                                 String childPath = normalizePath(child.getValue());
 
                                 if (autoExpandPaths.contains(childPath)) {
-                                    child.setExpanded(true); // Recursively triggers listener for this child
+                                    child.setExpanded(true);
 
-                                    // Check if this is the exact target folder
                                     if (targetSelection != null && normalizePath(targetSelection).equals(childPath)) {
                                         treeView.getSelectionModel().select(child);
                                         treeView.scrollTo(treeView.getRow(child));
-                                        targetSelection = null; // Done
+                                        targetSelection = null;
                                     }
                                 }
                             }
@@ -303,8 +303,6 @@ public class FolderNav extends VBox {
                 return;
             }
 
-            // --- SECTION HEADERS WITH SPACING ---
-
             if (item.equals(STARRED_SECTION)) {
                 setText("Starred");
                 setGraphic(createIcon(FontAwesome.STAR, "#FFD700"));
@@ -316,7 +314,7 @@ public class FolderNav extends VBox {
                 setText("COLLECTIONS");
                 setGraphic(createIcon(FontAwesome.LIST_ALT, null));
                 getStyleClass().add("nav-tree-header");
-                setStyle("-fx-padding: 15 0 0 0; -fx-background-color: transparent;"); // Spacing
+                setStyle("-fx-padding: 15 0 0 0; -fx-background-color: transparent;");
 
                 ContextMenu cm = new ContextMenu();
                 MenuItem createItem = new MenuItem("Create New Collection");
@@ -330,7 +328,7 @@ public class FolderNav extends VBox {
                 setText("PINNED");
                 setGraphic(createIcon(FontAwesome.THUMB_TACK, null));
                 getStyleClass().add("nav-tree-header");
-                setStyle("-fx-padding: 15 0 0 0; -fx-background-color: transparent;"); // Spacing
+                setStyle("-fx-padding: 15 0 0 0; -fx-background-color: transparent;");
                 return;
             }
 
@@ -338,11 +336,9 @@ public class FolderNav extends VBox {
                 setText("THIS PC");
                 setGraphic(createIcon(FontAwesome.DESKTOP, null));
                 getStyleClass().add("nav-tree-header");
-                setStyle("-fx-padding: 15 0 0 0; -fx-background-color: transparent;"); // Spacing
+                setStyle("-fx-padding: 15 0 0 0; -fx-background-color: transparent;");
                 return;
             }
-
-            // --- NORMAL ITEMS ---
 
             if (item.getPath().startsWith("::COL::")) {
                 setText(item.getName());

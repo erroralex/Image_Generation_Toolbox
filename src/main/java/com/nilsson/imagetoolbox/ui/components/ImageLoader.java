@@ -15,26 +15,33 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.Iterator;
 
 /**
- <h2>ImageLoader</h2>
- <p>
- A robust utility class designed to handle image loading for JavaFX applications, specifically
- optimized for AI-generated media which often utilizes modern or niche formats like WebP.
- </p>
+ A specialized utility class for high-performance image loading in JavaFX, tailored for
+ modern digital assets and AI-generated content.
+ * <p>The loader implements a dual-strategy approach to ensure maximum compatibility
+ and performance:
+ <ul>
+ <li><b>Native Strategy:</b> Leverages built-in JavaFX platform loading for standard
+ formats to take advantage of hardware acceleration.</li>
+ <li><b>Fallback Strategy:</b> Utilizes AWT ImageIO with TwelveMonkeys plugins to handle
+ niche formats (specifically WebP) and perform memory-efficient subsampling for thumbnails.</li>
+ </ul>
+ * <p>Key technical features include:
+ <ul>
+ <li>Manual registration of WebP Service Provider Interfaces (SPI).</li>
+ <li>Memory-cached input streams to prevent file locking and interrupt exceptions.</li>
+ <li>Aggressive subsampling during the read phase to reduce heap pressure when loading large images.</li>
+ <li>Bilinear interpolation for high-quality final scaling.</li>
+ </ul>
  */
 public class ImageLoader {
 
     static {
-        // Essential: Scan for TwelveMonkeys plugins (WebP, etc.)
         ImageIO.scanForPlugins();
-        // Disable disk cache to prevent locking issues; relies on RAM (MemoryCacheImageInputStream)
         ImageIO.setUseCache(false);
 
-        // Explicitly register WebP provider to ensure it's available in all contexts
         try {
             IIORegistry.getDefaultInstance().registerServiceProvider(new WebPImageReaderSpi());
         } catch (Throwable t) {
@@ -42,8 +49,10 @@ public class ImageLoader {
         }
     }
 
+    // --- Primary Loading Logic ---
+
     /**
-     * Loads an image from the specified file with requested dimensions.
+     Loads an image from the specified file with requested dimensions.
      */
     public static Image load(File file, double requestedWidth, double requestedHeight) {
         if (file == null || !file.exists()) return null;
@@ -51,41 +60,34 @@ public class ImageLoader {
         String lowerName = file.getName().toLowerCase();
         boolean isWebP = lowerName.endsWith(".webp");
 
-        // STRATEGY 1: Native JavaFX Load
-        // We only try native if NOT WebP, or if it IS WebP but we want the original size.
-        // (Native loader often crashes/fails when scaling WebP).
         if (!isWebP || (requestedWidth <= 0 && requestedHeight <= 0)) {
             try {
                 String url = file.toURI().toString();
-                // Load synchronously (backgroundLoading=false) to catch errors immediately
                 Image img = new Image(url, requestedWidth, requestedHeight, true, true, false);
 
                 if (img.isError() || img.getException() != null) {
-                    // If native failed, fall through to fallback
+                    // Fallthrough to fallback
                 } else {
                     return img;
                 }
             } catch (Exception ignored) {
-                // Fallthrough to fallback
             }
         }
 
-        // STRATEGY 2: Fallback (ImageIO with Subsampling)
         return loadFallback(file, requestedWidth, requestedHeight);
     }
 
+    // --- Fallback and Subsampling Strategy ---
+
     private static Image loadFallback(File file, double reqWidth, double reqHeight) {
-        // NUCLEAR OPTION: Read all bytes into RAM first.
-        // This is necessary to avoid ClosedByInterruptException (NIO) and ensure seeking works for all plugins.
         try {
             byte[] rawBytes = java.nio.file.Files.readAllBytes(file.toPath());
 
             try (ByteArrayInputStream bis = new ByteArrayInputStream(rawBytes);
-                 ImageInputStream iis = new MemoryCacheImageInputStream(bis)) { // Force Memory Cache
+                 ImageInputStream iis = new MemoryCacheImageInputStream(bis)) {
 
                 Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
 
-                // Force WebP Reader if auto-detect fails
                 if (!readers.hasNext() && file.getName().toLowerCase().endsWith(".webp")) {
                     iis.seek(0);
                     readers = ImageIO.getImageReadersByMIMEType("image/webp");
@@ -94,17 +96,14 @@ public class ImageLoader {
                 if (readers.hasNext()) {
                     ImageReader reader = readers.next();
                     try {
-                        reader.setInput(iis, true, true); // ignoreMetadata = true
+                        reader.setInput(iis, true, true);
 
-                        // OPTIMIZATION: Subsampling
-                        // Calculate target dimensions BEFORE reading to avoid decoding full 4K images for thumbnails.
                         int sourceWidth = reader.getWidth(0);
                         int sourceHeight = reader.getHeight(0);
 
                         int targetW = (int) reqWidth;
                         int targetH = (int) reqHeight;
 
-                        // Calculate missing dimensions if keeping aspect ratio
                         if (targetW <= 0 && targetH <= 0) {
                             targetW = sourceWidth;
                             targetH = sourceHeight;
@@ -116,24 +115,19 @@ public class ImageLoader {
 
                         ImageReadParam param = reader.getDefaultReadParam();
 
-                        // If we are scaling down significantly, tell ImageIO to skip pixels
                         if (targetW < sourceWidth && targetH < sourceHeight) {
                             int subsampleW = sourceWidth / targetW;
                             int subsampleH = sourceHeight / targetH;
                             int subsampling = Math.min(subsampleW, subsampleH);
 
-                            // Aggressive subsampling (e.g., read every 2nd or 4th pixel)
                             if (subsampling > 1) {
                                 param.setSourceSubsampling(subsampling, subsampling, 0, 0);
                             }
                         }
 
-                        // Read with subsampling
                         BufferedImage bImg = reader.read(0, param);
 
                         if (bImg != null) {
-                            // Final high-quality resize to exact requested dimensions
-                            // (Subsampling gets us close, but not exact)
                             if (reqWidth > 0 || reqHeight > 0) {
                                 bImg = resize(bImg, targetW, targetH);
                             }
@@ -152,6 +146,8 @@ public class ImageLoader {
         }
         return null;
     }
+
+    // --- Image Processing Helpers ---
 
     private static BufferedImage resize(BufferedImage img, int newW, int newH) {
         BufferedImage dimg = new BufferedImage(newW, newH, BufferedImage.TYPE_INT_ARGB);

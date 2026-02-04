@@ -25,16 +25,38 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+/**
+ <h2>ImageBrowserView</h2>
+ <p>
+ The primary view component of the application, responsible for orchestrating the image
+ browsing experience. It functions as a composite view that integrates navigation,
+ toolbars, and various viewing modes (Browser, Gallery, and List).
+ </p>
+ <p>Key Responsibilities:
+ <ul>
+ <li><b>Layout Management:</b> Coordinates a {@link BorderPane} based structure with
+ a collapsible {@link MetadataSidebar} and a "pill" style {@link BrowserToolbar}.</li>
+ <li><b>Mode Orchestration:</b> Switches dynamically between single-image focus,
+ thumbnail galleries, and file list views.</li>
+ <li><b>Interaction Handling:</b> Manages complex user input including keyboard shortcuts,
+ multi-file selection (Shift/Ctrl), and drag-and-drop folder loading.</li>
+ <li><b>Asynchronous Loading:</b> Utilizes a global {@link ExecutorService} to load
+ high-resolution images without blocking the UI thread.</li>
+ </ul>
+ </p>
+
+ @version 1.0 */
 public class ImageBrowserView extends StackPane implements JavaView<ImageBrowserViewModel>, Initializable {
 
+    /**
+     Defines the available display modes for the central viewing area.
+     */
     public enum ViewMode {BROWSER, GALLERY, LIST}
 
     @InjectViewModel
     private ImageBrowserViewModel viewModel;
 
-    // Injected Global Executor (Replaces local thumbnailPool)
     private final ExecutorService workerPool;
-
     private Future<?> currentLoadingTask;
     private List<File> currentFiles = new ArrayList<>();
     private final List<File> selectedFiles = new ArrayList<>();
@@ -44,6 +66,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private boolean isDrawerOpen = false;
     private boolean isDocked = false;
 
+    // UI Components
     private final BorderPane baseLayer;
     private FolderNav folderNav;
     private BrowserToolbar toolbar;
@@ -56,10 +79,11 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private Region drawerBackdrop;
     private StackPane dropOverlay;
 
-    // Constructor Injection
+    // --- Constructor & Core Initialization ---
+
     @Inject
     public ImageBrowserView(ExecutorService globalExecutor) {
-        this.workerPool = globalExecutor; // Assign injected pool
+        this.workerPool = globalExecutor;
 
         this.getStyleClass().add("image-browser-view");
         this.setAlignment(Pos.TOP_LEFT);
@@ -69,7 +93,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         baseLayer = new BorderPane();
         baseLayer.setMinSize(0, 0);
 
-        // Pass injected pool to sub-views
         this.filmstripView = new FilmstripView(workerPool);
         this.singleImageView = new SingleImageView(
                 this::toggleDrawer,
@@ -83,7 +106,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
-        // Pass injected pool to GalleryView
         this.galleryView = new GalleryView(viewModel, workerPool, this::onGalleryFileSelected);
 
         toolbar = new BrowserToolbar(
@@ -150,16 +172,17 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
         setViewMode(ViewMode.BROWSER);
 
-        // STARTUP LOGIC: Load last folder AND select it in tree
         Platform.runLater(() -> {
             File lastFolder = viewModel.getLastFolder();
             if (lastFolder != null && lastFolder.exists()) {
                 viewModel.loadFolder(lastFolder);
-                folderNav.selectFolder(lastFolder); // <--- Added missing sync call
+                folderNav.selectFolder(lastFolder);
             }
             this.requestFocus();
         });
     }
+
+    // --- UI Setup & Component Configuration ---
 
     private void setupComponents() {
         this.folderNav = new FolderNav(new FolderNav.FolderNavListener() {
@@ -272,11 +295,12 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         drawerBackdrop.setOnMouseClicked(e -> closeDrawer());
     }
 
+    // --- Mode & View State Management ---
+
     public void setViewMode(ViewMode mode) {
         this.currentViewMode = mode;
         centerContainer.getChildren().clear();
 
-        // Sync Toolbar State
         if (toolbar != null) {
             toolbar.setSliderVisible(mode == ViewMode.GALLERY);
             toolbar.setActiveView(mode == ViewMode.GALLERY);
@@ -316,7 +340,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
         singleImageView.setImage(null);
 
-        // FIXED: Using workerPool instead of thumbnailPool
         currentLoadingTask = workerPool.submit(() -> {
             if (Thread.currentThread().isInterrupted()) return;
             Image img = ImageLoader.load(file, 0, 0);
@@ -327,6 +350,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
         filmstripView.setSelectedIndex(index);
     }
+
+    // --- Navigation & Selection Handling ---
 
     private void navigate(int dir) {
         if (currentFiles.isEmpty()) return;
@@ -375,6 +400,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         currentIndex = currentFiles.indexOf(file);
     }
 
+    // --- Sidebar Drawer Controls ---
+
     private void toggleDock() {
         isDocked = !isDocked;
         inspectorDrawer.setDocked(isDocked);
@@ -417,6 +444,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             tt.play();
         }
     }
+
+    // --- Input & Drag Handlers ---
 
     private void setupInputHandlers() {
         this.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
@@ -471,7 +500,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
                 File f = e.getDragboard().getFiles().get(0);
                 File dir = f.isDirectory() ? f : f.getParentFile();
                 viewModel.loadFolder(dir);
-                folderNav.selectFolder(dir); // <--- Sync tree on drop
+                folderNav.selectFolder(dir);
                 s = true;
             }
             dropOverlay.setVisible(false);
@@ -479,6 +508,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             e.consume();
         });
     }
+
+    // --- Utilities ---
 
     private File getCurrentFile() {
         return (currentIndex >= 0 && currentIndex < currentFiles.size()) ? currentFiles.get(currentIndex) : null;
