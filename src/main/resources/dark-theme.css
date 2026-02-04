@@ -196,19 +196,20 @@
     -fx-prompt-text-fill: derive(#808080, 20%);
 }
 
+/* UPDATED: Darker background as requested (#0e1015) */
 .prompt-block {
-    -fx-background-color: #252526;
+    -fx-background-color: #0e1015;
     -fx-background-radius: 6;
     -fx-border-color: #333;
     -fx-border-radius: 6;
     -fx-text-fill: #d4d4d4;
     -fx-font-size: 12px;
     -fx-padding: 5;
-    -fx-control-inner-background: #252526;
+    -fx-control-inner-background: #0e1015;
 }
 
 .prompt-block .content {
-    -fx-background-color: #252526;
+    -fx-background-color: #0e1015;
 }
 
 /* ===================================================================================
@@ -478,7 +479,6 @@
  * ===================================================================================
  */
 
-/* FIXED: Added dot prefix for class selector and REMOVED hover block */
 .browser-toolbar {
     -fx-background-color: rgba(18, 20, 26, 0.95); /* Deep dark semi-transparent */
     -fx-background-radius: 30px; /* Fully rounded ends */
@@ -616,7 +616,6 @@
     -fx-font-size: 13px;
 }
 
-/* Added explicit hover effect since users expects it to react */
 .pill-search-field:hover {
     -fx-background-color: #1a1c22;
     -fx-effect: dropshadow(three-pass-box, rgba(69, 162, 158, 0.15), 5, 0, 0, 0);
