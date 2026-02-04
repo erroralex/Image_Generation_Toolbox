@@ -11,29 +11,29 @@
     /* -------- Color Palette -------- */
     -app-bg-deepest: #0b0c10;
     -app-bg-surface: #0e1015;
-    -app-bg-panel:   #12141a;
-    -app-bg-card:    #151820;
-    -app-bg-input:   #000000;
+    -app-bg-panel: #12141a;
+    -app-bg-card: #151820;
+    -app-bg-input: #000000;
 
     /* -------- Accents -------- */
-    -app-cyan:        #45a29e;
+    -app-cyan: #45a29e;
     -app-cyan-bright: #66fcf1;
-    -app-purple:      #c45dec;
+    -app-purple: #c45dec;
     -app-red-warning: #ff4d4d;
 
     /* -------- Gradients -------- */
     -app-grad-primary: linear-gradient(to right, #45a29e 0%, #c45dec 100%);
-    -app-grad-hover:   linear-gradient(to right, #66fcf1 0%, #d870ff 100%);
-    -app-grad-text:    linear-gradient(to right, #00d4ff 0%, #7a2aff 100%);
+    -app-grad-hover: linear-gradient(to right, #66fcf1 0%, #d870ff 100%);
+    -app-grad-text: linear-gradient(to right, #00d4ff 0%, #7a2aff 100%);
 
     /* -------- Glow Effects -------- */
-    -glow-soft:   dropshadow(three-pass-box, rgba(102, 252, 241, 0.25), 8, 0, 0, 0);
+    -glow-soft: dropshadow(three-pass-box, rgba(102, 252, 241, 0.25), 8, 0, 0, 0);
     -glow-strong: dropshadow(three-pass-box, rgba(102, 252, 241, 0.45), 14, 0, 0, 0);
 
     /* -------- Typography -------- */
-    -text-primary:   #eef2f7;
+    -text-primary: #eef2f7;
     -text-secondary: #a1a8b3;
-    -text-muted:     #6b7280;
+    -text-muted: #6b7280;
 
     /* -------- JavaFX Defaults Override -------- */
     -fx-base: -app-bg-deepest;
@@ -118,8 +118,13 @@
  * ===================================================================================
  */
 
-.text-primary { -fx-text-fill: -text-primary; }
-.text-secondary { -fx-text-fill: -text-secondary; }
+.text-primary {
+    -fx-text-fill: -text-primary;
+}
+
+.text-secondary {
+    -fx-text-fill: -text-secondary;
+}
 
 .ikonli-font-icon {
     -fx-font-family: "FontAwesome" !important;
@@ -293,8 +298,13 @@
     -fx-font-size: 10px;
 }
 
-.icon-button-small .ikonli-font-icon { -fx-fill: #888; }
-.icon-button-small:hover .ikonli-font-icon { -fx-fill: white; }
+.icon-button-small .ikonli-font-icon {
+    -fx-fill: #888;
+}
+
+.icon-button-small:hover .ikonli-font-icon {
+    -fx-fill: white;
+}
 
 .icon-button-large {
     -fx-background-color: rgba(255, 255, 255, 0.05);
@@ -434,7 +444,7 @@
 }
 
 .card-overlay {
-    -fx-background-color: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 80%, transparent 100%);
+    -fx-background-color: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 80%, transparent 100%);
     -fx-background-radius: 0 0 8 8;
 }
 
@@ -468,18 +478,14 @@
  * ===================================================================================
  */
 
-browser-toolbar {
+/* FIXED: Added dot prefix for class selector and REMOVED hover block */
+.browser-toolbar {
     -fx-background-color: rgba(18, 20, 26, 0.95); /* Deep dark semi-transparent */
     -fx-background-radius: 30px; /* Fully rounded ends */
     -fx-border-color: rgba(255, 255, 255, 0.1);
     -fx-border-radius: 30px;
     -fx-border-width: 1px;
     -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.5), 15, 0, 0, 5);
-}
-
-.browser-toolbar:hover {
-    -fx-border-color: rgba(255, 255, 255, 0.2);
-    -fx-background-color: rgba(21, 24, 32, 1.0);
 }
 
 .toolbar-button {
@@ -504,6 +510,33 @@ browser-toolbar {
     -fx-border-color: -app-grad-primary;
     -fx-border-width: 1px;
     -fx-border-radius: 3;
+}
+
+/* NEW: Toolbar Menu Button (Label style) */
+.toolbar-menu-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -text-secondary;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+    -fx-padding: 4 8 4 8;
+}
+
+.toolbar-menu-button:hover {
+    -fx-text-fill: white;
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-background-radius: 4;
+}
+
+.toolbar-menu-button .arrow-button {
+    -fx-padding: 0 0 0 5;
+}
+
+.toolbar-menu-button .arrow {
+    -fx-background-color: -text-secondary;
+}
+
+.toolbar-menu-button:hover .arrow {
+    -fx-background-color: white;
 }
 
 .command-palette {
@@ -531,6 +564,13 @@ browser-toolbar {
     -fx-font-size: 11px;
     -fx-cursor: hand;
     -fx-background-color: #3d3d3d;
+    -fx-border-color: rgba(255, 255, 255, 0.1);
+    -fx-border-radius: 15;
+}
+
+.filter-chip:hover {
+    -fx-background-color: #4d4d4d;
+    -fx-border-color: rgba(255, 255, 255, 0.3);
 }
 
 .filter-chip.active {
@@ -566,19 +606,25 @@ browser-toolbar {
  */
 
 .pill-search-field {
-    -fx-background-color: rgba(255, 255, 255, 0.05);
-    -fx-background-radius: 15px;
-    -fx-border-color: transparent;
-    -fx-border-radius: 15px;
+    -fx-background-color: #12141a; /* Darker panel background */
+    -fx-background-radius: 50px;
+    -fx-border-color: -app-grad-primary; /* Gradient border */
+    -fx-border-radius: 50px;
+    -fx-border-width: 1px;
     -fx-text-fill: white;
-    -fx-padding: 4 28 4 10; /* Right padding reserved for X button */
+    -fx-padding: 4 28 4 10;
     -fx-font-size: 13px;
 }
 
+/* Added explicit hover effect since users expects it to react */
+.pill-search-field:hover {
+    -fx-background-color: #1a1c22;
+    -fx-effect: dropshadow(three-pass-box, rgba(69, 162, 158, 0.15), 5, 0, 0, 0);
+}
+
 .pill-search-field:focused {
-    -fx-background-color: rgba(255, 255, 255, 0.08);
-    -fx-border-color: -app-cyan;
-    -fx-effect: dropshadow(three-pass-box, rgba(69, 162, 158, 0.2), 5, 0, 0, 0);
+    -fx-background-color: #1a1c22;
+    -fx-effect: -glow-soft;
 }
 
 .search-clear-button {

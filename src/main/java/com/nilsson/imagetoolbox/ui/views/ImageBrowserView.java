@@ -18,16 +18,13 @@ import javafx.scene.input.*;
 import javafx.scene.layout.*;
 import javafx.util.Duration;
 
+import javax.inject.Inject;
 import java.io.File;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/**
- <h2>ImageBrowserView</h2>
- */
 public class ImageBrowserView extends StackPane implements JavaView<ImageBrowserViewModel>, Initializable {
 
     public enum ViewMode {BROWSER, GALLERY, LIST}
@@ -35,12 +32,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     @InjectViewModel
     private ImageBrowserViewModel viewModel;
 
-    private final ExecutorService thumbnailPool = Executors.newFixedThreadPool(6, r -> {
-        Thread t = new Thread(r);
-        t.setDaemon(true);
-        t.setName("ThumbnailLoader");
-        return t;
-    });
+    // Injected Global Executor (Replaces local thumbnailPool)
+    private final ExecutorService workerPool;
 
     private Future<?> currentLoadingTask;
     private List<File> currentFiles = new ArrayList<>();
@@ -63,7 +56,11 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private Region drawerBackdrop;
     private StackPane dropOverlay;
 
-    public ImageBrowserView() {
+    // Constructor Injection
+    @Inject
+    public ImageBrowserView(ExecutorService globalExecutor) {
+        this.workerPool = globalExecutor; // Assign injected pool
+
         this.getStyleClass().add("image-browser-view");
         this.setAlignment(Pos.TOP_LEFT);
         this.setFocusTraversable(true);
@@ -72,7 +69,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         baseLayer = new BorderPane();
         baseLayer.setMinSize(0, 0);
 
-        this.filmstripView = new FilmstripView(thumbnailPool);
+        // Pass injected pool to sub-views
+        this.filmstripView = new FilmstripView(workerPool);
         this.singleImageView = new SingleImageView(
                 this::toggleDrawer,
                 () -> navigate(-1),
@@ -85,7 +83,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
-        this.galleryView = new GalleryView(viewModel, thumbnailPool, this::onGalleryFileSelected);
+        // Pass injected pool to GalleryView
+        this.galleryView = new GalleryView(viewModel, workerPool, this::onGalleryFileSelected);
 
         toolbar = new BrowserToolbar(
                 viewModel.searchQueryProperty(),
@@ -102,8 +101,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         });
 
         StackPane toolbarContainer = new StackPane(toolbar);
-        toolbarContainer.setAlignment(Pos.CENTER); // Ensures floating centered
-        toolbarContainer.setPadding(new Insets(15, 0, 10, 0)); // Spacing from top
+        toolbarContainer.setAlignment(Pos.CENTER);
+        toolbarContainer.setPadding(new Insets(15, 0, 10, 0));
         toolbarContainer.setStyle("-fx-background-color: transparent;");
         toolbarContainer.setPickOnBounds(false);
         toolbarContainer.setMaxHeight(Region.USE_PREF_SIZE);
@@ -117,7 +116,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
         refreshNav();
 
-        // View-Model Bindings
         viewModel.getFilteredFiles().addListener((ListChangeListener<File>) c -> {
             this.currentFiles = new ArrayList<>(viewModel.getFilteredFiles());
             filmstripView.setFiles(currentFiles);
@@ -273,7 +271,12 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     public void setViewMode(ViewMode mode) {
         this.currentViewMode = mode;
         centerContainer.getChildren().clear();
-        toolbar.setSliderVisible(mode == ViewMode.GALLERY);
+
+        // Sync Toolbar State
+        if (toolbar != null) {
+            toolbar.setSliderVisible(mode == ViewMode.GALLERY);
+            toolbar.setActiveView(mode == ViewMode.GALLERY);
+        }
 
         if (mode == ViewMode.GALLERY) {
             centerContainer.getChildren().add(galleryView);
@@ -308,13 +311,16 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         }
 
         singleImageView.setImage(null);
-        currentLoadingTask = thumbnailPool.submit(() -> {
+
+        // FIXED: Using workerPool instead of thumbnailPool
+        currentLoadingTask = workerPool.submit(() -> {
             if (Thread.currentThread().isInterrupted()) return;
             Image img = ImageLoader.load(file, 0, 0);
             Platform.runLater(() -> {
                 if (currentIndex == index) singleImageView.setImage(img);
             });
         });
+
         filmstripView.setSelectedIndex(index);
     }
 

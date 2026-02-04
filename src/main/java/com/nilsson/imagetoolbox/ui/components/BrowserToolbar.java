@@ -3,6 +3,7 @@ package com.nilsson.imagetoolbox.ui.components;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.StringProperty;
+import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -22,14 +23,17 @@ import org.kordamp.ikonli.javafx.FontIcon;
  <ul>
  <li><b>Design:</b> Now acts as a centered floating pill (max-width 920px).</li>
  <li><b>Search:</b> Added a "Clear" (X) button inside the search field.</li>
+ <li><b>Filters:</b> Converted to MenuButton + Chip pattern for cleaner UI.</li>
+ <li><b>View Toggle:</b> Converted to ToggleButtons for state indication.</li>
  </ul>
  */
 public class BrowserToolbar extends HBox {
 
     private final Slider sizeSlider;
     private final TextField searchField;
-    private final Button gridBtn;
-    private final Button singleBtn;
+    private final ToggleButton gridBtn;
+    private final ToggleButton singleBtn;
+    private final ToggleGroup viewGroup;
 
     private Runnable onGridAction;
     private Runnable onSingleAction;
@@ -90,11 +94,11 @@ public class BrowserToolbar extends HBox {
         searchContainer.getChildren().addAll(searchField, clearBtn);
 
         // ====================================================================
-        // 2. FILTERS SECTION
+        // 2. FILTERS SECTION (MenuButton + Chip)
         // ====================================================================
-        ComboBox<String> modelBox = createCombo("Model", models, selectedModel);
-        ComboBox<String> samplerBox = createCombo("Sampler", samplers, selectedSampler);
-        ComboBox<String> loraBox = createCombo("LoRA", loras, selectedLora);
+        HBox modelFilter = createFilterControl("Model", models, selectedModel);
+        HBox samplerFilter = createFilterControl("Sampler", samplers, selectedSampler);
+        HBox loraFilter = createFilterControl("LoRA", loras, selectedLora);
 
         // ====================================================================
         // 3. CONTROLS SECTION
@@ -106,14 +110,26 @@ public class BrowserToolbar extends HBox {
         sizeSlider.setPrefWidth(100);
         sizeSlider.setVisible(false);
 
-        gridBtn = createButton("fa-th-large", "Gallery");
+        viewGroup = new ToggleGroup();
+
+        gridBtn = createToggleButton("fa-th-large", "Gallery");
+        gridBtn.setToggleGroup(viewGroup);
+        gridBtn.setSelected(true); // Default
         gridBtn.setOnAction(e -> {
             if (onGridAction != null) onGridAction.run();
         });
 
-        singleBtn = createButton("fa-square-o", "Single");
+        singleBtn = createToggleButton("fa-square-o", "Single");
+        singleBtn.setToggleGroup(viewGroup);
         singleBtn.setOnAction(e -> {
             if (onSingleAction != null) onSingleAction.run();
+        });
+
+        // Ensure one is always selected (optional UX choice, prevents no-selection state)
+        viewGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal == null) {
+                oldVal.setSelected(true);
+            }
         });
 
         viewControls.getChildren().addAll(sizeSlider, new Separator(javafx.geometry.Orientation.VERTICAL), gridBtn, singleBtn);
@@ -124,11 +140,27 @@ public class BrowserToolbar extends HBox {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        this.getChildren().addAll(searchContainer, modelBox, samplerBox, loraBox, spacer, viewControls);
+        this.getChildren().addAll(searchContainer, modelFilter, samplerFilter, loraFilter, spacer, viewControls);
     }
 
-    private Button createButton(String iconCode, String tooltip) {
-        Button btn = new Button();
+    /**
+     Updates the toggle buttons to reflect the current view state externally.
+
+     @param isGrid true for Gallery/Grid view, false for Single view.
+     */
+    public void setActiveView(boolean isGrid) {
+        if (isGrid) {
+            if (!gridBtn.isSelected()) gridBtn.setSelected(true);
+        } else {
+            if (!singleBtn.isSelected()) singleBtn.setSelected(true);
+        }
+    }
+
+    /**
+     Creates a ToggleButton for view switching.
+     */
+    private ToggleButton createToggleButton(String iconCode, String tooltip) {
+        ToggleButton btn = new ToggleButton();
         btn.getStyleClass().add("toolbar-button");
         FontIcon icon = new FontIcon(iconCode);
         icon.setIconSize(15);
@@ -137,27 +169,68 @@ public class BrowserToolbar extends HBox {
         return btn;
     }
 
-    private ComboBox<String> createCombo(String prompt, ObservableList<String> items, ObjectProperty<String> boundProperty) {
-        ComboBox<String> box = new ComboBox<>();
-        box.setItems(items);
-        box.setPromptText(prompt);
-        box.setPrefWidth(110); // Slightly compact
+    /**
+     Creates a composite filter control: A static Label dropdown + a dynamic removable chip.
+     */
+    private HBox createFilterControl(String label, ObservableList<String> items, ObjectProperty<String> boundProperty) {
+        HBox container = new HBox(6);
+        container.setAlignment(Pos.CENTER_LEFT);
 
-        if (boundProperty.get() != null) {
-            box.setValue(boundProperty.get());
-        }
+        // 1. The MenuButton (Always visible "Label")
+        MenuButton menuBtn = new MenuButton(label);
+        menuBtn.getStyleClass().add("toolbar-menu-button");
 
-        box.valueProperty().addListener((o, old, newVal) -> boundProperty.set(newVal));
-
-        boundProperty.addListener((o, old, newVal) -> {
-            if (newVal == null) {
-                box.getSelectionModel().clearSelection();
-            } else if (!newVal.equals(box.getValue())) {
-                box.setValue(newVal);
+        // Helper to rebuild menu items
+        Runnable populateMenu = () -> {
+            menuBtn.getItems().clear();
+            for (String item : items) {
+                MenuItem mi = new MenuItem(item);
+                mi.setOnAction(e -> boundProperty.set(item));
+                menuBtn.getItems().add(mi);
             }
-        });
+        };
 
-        return box;
+        // Initial population and listener for list updates
+        populateMenu.run();
+        items.addListener((ListChangeListener<String>) c -> populateMenu.run());
+
+        // 2. The Chip (Dynamic)
+        Label chip = new Label();
+        chip.getStyleClass().add("filter-chip");
+        chip.setContentDisplay(ContentDisplay.RIGHT);
+        chip.setGraphicTextGap(6);
+
+        // X Icon to clear
+        FontIcon xIcon = new FontIcon("fa-times");
+        xIcon.setIconSize(10);
+        xIcon.setStyle("-fx-fill: rgba(255,255,255,0.7);"); // Slightly dimmed X
+        chip.setGraphic(xIcon);
+
+        // Hover effect for the X (handled in CSS usually, but simple logic here)
+        chip.setOnMouseEntered(e -> xIcon.setStyle("-fx-fill: white;"));
+        chip.setOnMouseExited(e -> xIcon.setStyle("-fx-fill: rgba(255,255,255,0.7);"));
+
+        // Click chip to remove filter
+        chip.setOnMouseClicked(e -> boundProperty.set(null));
+
+        // Listener to Show/Hide Chip
+        Runnable updateChip = () -> {
+            String val = boundProperty.get();
+            if (val != null && !val.isEmpty()) {
+                chip.setText(val);
+                if (!container.getChildren().contains(chip)) {
+                    container.getChildren().add(chip);
+                }
+            } else {
+                container.getChildren().remove(chip);
+            }
+        };
+
+        boundProperty.addListener((o, old, newVal) -> updateChip.run());
+        updateChip.run(); // Initial check
+
+        container.getChildren().add(0, menuBtn);
+        return container;
     }
 
     public DoubleProperty cardSizeProperty() {
