@@ -8,24 +8,34 @@ import java.io.File;
 import java.sql.*;
 import java.util.*;
 import java.util.stream.Collectors;
+
 /**
- Data Access Object (DAO) responsible for managing image entities, their metadata,
+ <h2>ImageRepository</h2>
+ <p>
+ A Data Access Object (DAO) responsible for managing image entities, their metadata,
  tags, and search capabilities within the application.
- * <p>This repository interacts with the {@link DatabaseService} to perform:
+ </p>
+ <p>This repository interacts with the {@link DatabaseService} to perform the following core functions:</p>
  <ul>
- <li>Core Identity Management: Tracking files via unique paths and hashes.</li>
- <li>Advanced Search: Dynamic SQL generation for filtered results and FTS (Full-Text Search) integration.</li>
- <li>Attribute Management: Handling ratings and starred status.</li>
- <li>Metadata & Tags: Batch processing and individual updates of EXIF/IPTC or custom data.</li>
- <li>Pinned Folders: Persistence for frequently accessed directories.</li>
+ <li><b>Core Identity Management:</b> Tracks files via unique paths and hashes, ensuring
+ data integrity and mapping file system objects to database IDs.</li>
+ <li><b>Advanced Search:</b> Dynamically generates SQL queries to support complex filtering
+ and SQLite FTS5 (Full-Text Search) for rapid metadata retrieval.</li>
+ <li><b>Attribute Management:</b> Handles persistence for user-driven attributes such as
+ ratings and "starred" status.</li>
+ <li><b>Metadata & Tags:</b> Manages key-value metadata pairs and tags, supporting both
+ batch operations and individual updates.</li>
+ <li><b>Pinned Folders:</b> Provides persistence for a user's frequently accessed directories.</li>
  </ul>
- * <p>The class uses SQLite FTS5 through {@code updateFtsIndex} to ensure that metadata
- changes are immediately searchable via full-text queries.</p>
+ <p><b>FTS Integration:</b> To ensure metadata changes are immediately searchable, this class
+ invokes {@code updateFtsIndex} following metadata or tag modifications, keeping the SQLite
+ FTS5 virtual tables in sync with the primary relational storage.</p>
  */
 public class ImageRepository {
 
     private static final Logger logger = LoggerFactory.getLogger(ImageRepository.class);
     private final DatabaseService db;
+    private static final int BATCH_SIZE = 500;
 
     @Inject
     public ImageRepository(DatabaseService db) {
@@ -36,20 +46,22 @@ public class ImageRepository {
 
     public int getOrCreateId(String path, String hash) throws SQLException {
         try (Connection conn = db.connect()) {
-            try (PreparedStatement pstmt = conn.prepareStatement("SELECT id FROM images WHERE file_path = ?")) {
-                pstmt.setString(1, path);
-                ResultSet rs = pstmt.executeQuery();
-                if (rs.next()) return rs.getInt("id");
-            }
-
-            String sql = "INSERT INTO images(file_path, file_hash, last_scanned) VALUES(?, ?, ?)";
-            try (PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            String insertSql = "INSERT OR IGNORE INTO images(file_path, file_hash, last_scanned) VALUES(?, ?, ?)";
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                 pstmt.setString(1, path);
                 pstmt.setString(2, hash);
                 pstmt.setLong(3, System.currentTimeMillis());
                 pstmt.executeUpdate();
-                ResultSet rs = pstmt.getGeneratedKeys();
-                if (rs.next()) return rs.getInt(1);
+            }
+
+            String selectSql = "SELECT id FROM images WHERE file_path = ?";
+            try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
+                pstmt.setString(1, path);
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt("id");
+                    }
+                }
             }
         }
         throw new SQLException("Failed to get ID for " + path);
@@ -174,28 +186,34 @@ public class ImageRepository {
         Map<String, Map<String, String>> result = new HashMap<>();
         if (files == null || files.isEmpty()) return result;
 
-        String placeholders = files.stream().map(f -> "?").collect(Collectors.joining(","));
-        String sql = "SELECT i.file_path, m.key, m.value FROM images i " +
-                "JOIN image_metadata m ON i.id = m.image_id " +
-                "WHERE i.file_path IN (" + placeholders + ")";
+        // Chunking to avoid SQLite variable limit (SQLITE_MAX_VARIABLE_NUMBER)
+        for (int i = 0; i < files.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, files.size());
+            List<File> batch = files.subList(i, end);
 
-        try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            int idx = 1;
-            for (File f : files) {
-                pstmt.setString(idx++, f.getAbsolutePath());
-            }
+            String placeholders = batch.stream().map(f -> "?").collect(Collectors.joining(","));
+            String sql = "SELECT i.file_path, m.key, m.value FROM images i " +
+                    "JOIN image_metadata m ON i.id = m.image_id " +
+                    "WHERE i.file_path IN (" + placeholders + ")";
 
-            try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) {
-                    String path = rs.getString("file_path");
-                    String key = rs.getString("key");
-                    String value = rs.getString("value");
-
-                    result.computeIfAbsent(path, k -> new HashMap<>()).put(key, value);
+            try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                int idx = 1;
+                for (File f : batch) {
+                    pstmt.setString(idx++, f.getAbsolutePath());
                 }
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    while (rs.next()) {
+                        String path = rs.getString("file_path");
+                        String key = rs.getString("key");
+                        String value = rs.getString("value");
+
+                        result.computeIfAbsent(path, k -> new HashMap<>()).put(key, value);
+                    }
+                }
+            } catch (SQLException e) {
+                logger.error("Batch metadata fetch failed", e);
             }
-        } catch (SQLException e) {
-            logger.error("Batch metadata fetch failed", e);
         }
         return result;
     }

@@ -2,13 +2,13 @@ package com.nilsson.imagetoolbox.ui.viewmodels;
 
 import com.nilsson.imagetoolbox.data.ImageRepository;
 import com.nilsson.imagetoolbox.data.UserDataManager;
+import com.nilsson.imagetoolbox.service.IndexingService;
 import com.nilsson.imagetoolbox.service.MetadataService;
 import de.saxsys.mvvmfx.ViewModel;
 import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.collections.transformation.FilteredList;
 import javafx.concurrent.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,47 +23,49 @@ import java.util.stream.Collectors;
 /**
  <h2>ImageBrowserViewModel</h2>
  <p>
- The primary ViewModel for the image browsing interface, implementing the MVVM pattern
- to coordinate between the UI components and the underlying data layer.
+ The primary ViewModel for the image browsing interface, responsible for managing the state
+ of the UI and coordinating between data repositories and background services.
  </p>
- <p>Key Responsibilities:
+ * <h3>Key Responsibilities:</h3>
  <ul>
- <li><b>Asynchronous Indexing:</b> Manages background tasks for folder scanning and batch metadata extraction.</li>
- <li><b>Dynamic Filtering:</b> Provides observable properties for real-time searching and filtering
- based on AI metadata (Models, Samplers, LoRAs).</li>
- <li><b>State Management:</b> Maintains caches for ratings and metadata to ensure smooth UI performance
- during heavy scrolling.</li>
- <li><b>Collection Integration:</b> Handles CRUD operations for virtual collections and starred assets.</li>
+ <li><b>State Management:</b> Maintains {@link ObservableList} and {@link Property} objects
+ for UI data binding, including selected images, filtered results, and metadata.</li>
+ <li><b>Asynchronous Processing:</b> Delegates heavy indexing tasks to {@link IndexingService}
+ and manages local background tasks via an {@link ExecutorService}.</li>
+ <li><b>Filtering & Search:</b> Provides SQL-backed search capabilities and manages
+ distinct filter values for Models, Samplers, and Loras.</li>
+ <li><b>Collection Management:</b> Interfaces with {@link UserDataManager} to handle
+ user-defined collections, pinned folders, and file ratings.</li>
  </ul>
- </p>
  */
 public class ImageBrowserViewModel implements ViewModel {
 
     private static final Logger logger = LoggerFactory.getLogger(ImageBrowserViewModel.class);
-    private static final int BATCH_SIZE = 50;
+    private static final int SEARCH_LIMIT = 5000;
 
     // --- Dependencies ---
     private final UserDataManager dataManager;
     private final MetadataService metaService;
     private final ImageRepository imageRepo;
+    private final IndexingService indexingService;
     private final ExecutorService executor;
 
-    // --- View State: Lists & Selection ---
+    // --- View State ---
     private final ObservableList<File> selectedImages = FXCollections.observableArrayList();
     private final ObjectProperty<File> selectedImage = new SimpleObjectProperty<>();
     private final ObservableList<File> allFolderFiles = FXCollections.observableArrayList();
-    private final FilteredList<File> filteredFiles = new FilteredList<>(allFolderFiles, p -> true);
+    private final ObservableList<File> filteredFiles = FXCollections.observableArrayList();
 
     // --- Caches ---
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
     private final Map<File, Integer> ratingCache = new ConcurrentHashMap<>();
 
-    // --- Sidebar & Attribute Properties ---
+    // --- Properties ---
     private final ObjectProperty<Map<String, String>> activeMetadata = new SimpleObjectProperty<>(new HashMap<>());
     private final ObjectProperty<Set<String>> activeTags = new SimpleObjectProperty<>(new HashSet<>());
     private final IntegerProperty activeRating = new SimpleIntegerProperty(0);
 
-    // --- Filter & Search Properties ---
+    // --- Filter Properties ---
     private final StringProperty searchQuery = new SimpleStringProperty("");
     private final ObservableList<String> availableModels = FXCollections.observableArrayList();
     private final ObservableList<String> availableSamplers = FXCollections.observableArrayList();
@@ -71,64 +73,43 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObjectProperty<String> selectedModel = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
-
-    // --- Collection State ---
     private final ObservableList<String> collectionList = FXCollections.observableArrayList();
-    private Task<Void> currentIndexingTask = null;
+
+    private Task<List<File>> currentSearchTask = null;
+
+    // --- Initialization ---
 
     @Inject
     public ImageBrowserViewModel(UserDataManager dataManager,
                                  MetadataService metaService,
                                  ImageRepository imageRepo,
+                                 IndexingService indexingService,
                                  ExecutorService executor) {
         this.dataManager = dataManager;
         this.metaService = metaService;
         this.imageRepo = imageRepo;
+        this.indexingService = indexingService;
         this.executor = executor;
 
-        this.searchQuery.addListener((obs, old, val) -> updateFilter());
-        this.selectedModel.addListener((obs, old, val) -> updateFilter());
-        this.selectedSampler.addListener((obs, old, val) -> updateFilter());
-        this.selectedLora.addListener((obs, old, val) -> updateFilter());
-
+        setupListeners();
         refreshCollections();
         loadFilters();
     }
 
-    // --- Data Retrieval ---
-
-    public int getRatingForFile(File file) {
-        if (file == null) return 0;
-        if (ratingCache.containsKey(file)) {
-            return ratingCache.get(file);
-        }
-        int r = dataManager.getRating(file);
-        ratingCache.put(file, r);
-        return r;
+    private void setupListeners() {
+        searchQuery.addListener((obs, old, val) -> triggerSearch());
+        selectedModel.addListener((obs, old, val) -> triggerSearch());
+        selectedSampler.addListener((obs, old, val) -> triggerSearch());
+        selectedLora.addListener((obs, old, val) -> triggerSearch());
     }
 
-    public String getMetadataValue(File file, String key) {
-        if (file == null || key == null) return "";
-        Map<String, String> meta = currentFolderMetadata.get(file);
-        return meta != null ? meta.getOrDefault(key, "") : "";
-    }
-
-    public void addFilesToCollection(String name, List<File> files) {
-        executor.submit(() -> files.forEach(f -> dataManager.addImageToCollection(name, f)));
-    }
-
-    public int getSelectionCount() {
-        return selectedImages.size();
-    }
-
-    // --- Folder Loading & Indexing Logic ---
+    // --- Folder Loading & Indexing ---
 
     public void loadFolder(File folder) {
         if (folder == null || !folder.isDirectory()) return;
 
-        if (currentIndexingTask != null && !currentIndexingTask.isDone()) {
-            currentIndexingTask.cancel(true);
-        }
+        indexingService.cancel();
+        cancelActiveTasks();
 
         dataManager.setLastFolder(folder);
         currentFolderMetadata.clear();
@@ -148,57 +129,61 @@ public class ImageBrowserViewModel implements ViewModel {
             }
         };
         task.setOnSucceeded(e -> {
-            allFolderFiles.setAll(task.getValue());
-            startIndexing(task.getValue());
+            List<File> files = task.getValue();
+            allFolderFiles.setAll(files);
+            filteredFiles.setAll(files);
+
+            indexingService.startIndexing(files, this::onBatchIndexed);
         });
         executor.submit(task);
     }
 
-    private void startIndexing(List<File> files) {
-        if (files.isEmpty()) return;
-
-        currentIndexingTask = new Task<>() {
-            @Override
-            protected Void call() {
-                int total = files.size();
-                for (int i = 0; i < total; i += BATCH_SIZE) {
-                    if (isCancelled()) break;
-
-                    int end = Math.min(i + BATCH_SIZE, total);
-                    List<File> batch = files.subList(i, end);
-
-                    Map<String, Map<String, String>> batchMeta = imageRepo.batchGetMetadata(batch);
-
-                    for (File file : batch) {
-                        if (isCancelled()) break;
-
-                        ratingCache.put(file, dataManager.getRating(file));
-
-                        if (batchMeta.containsKey(file.getAbsolutePath())) {
-                            currentFolderMetadata.put(file, batchMeta.get(file.getAbsolutePath()));
-                            dataManager.cacheMetadata(file, batchMeta.get(file.getAbsolutePath()));
-                        } else if (dataManager.hasCachedMetadata(file)) {
-                            currentFolderMetadata.put(file, dataManager.getCachedMetadata(file));
-                        } else {
-                            Map<String, String> meta = metaService.getExtractedData(file);
-                            dataManager.cacheMetadata(file, meta);
-                            currentFolderMetadata.put(file, meta);
-                        }
-                    }
-
-                    Platform.runLater(ImageBrowserViewModel.this::updateFilter);
-                    try {
-                        Thread.sleep(5);
-                    } catch (InterruptedException ignored) {
-                    }
-                }
-                return null;
-            }
-        };
-        executor.submit(currentIndexingTask);
+    private void onBatchIndexed(IndexingService.BatchResult result) {
+        currentFolderMetadata.putAll(result.metadata);
+        ratingCache.putAll(result.ratings);
     }
 
-    // --- Filter Management ---
+    // --- Search & Filtering Logic ---
+
+    private void triggerSearch() {
+        if (currentSearchTask != null && !currentSearchTask.isDone()) {
+            currentSearchTask.cancel(true);
+        }
+
+        String query = searchQuery.get();
+        String model = selectedModel.get();
+        String sampler = selectedSampler.get();
+        String lora = selectedLora.get();
+
+        if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora)) {
+            filteredFiles.setAll(allFolderFiles);
+            return;
+        }
+
+        Map<String, String> filters = new HashMap<>();
+        if (!isAll(model)) filters.put("Model", model);
+        if (!isAll(sampler)) filters.put("Sampler", sampler);
+        if (!isAll(lora)) filters.put("Loras", lora);
+
+        currentSearchTask = new Task<>() {
+            @Override
+            protected List<File> call() {
+                List<String> paths = imageRepo.findPaths(query, filters, SEARCH_LIMIT);
+                return paths.stream()
+                        .map(File::new)
+                        .filter(File::exists)
+                        .collect(Collectors.toList());
+            }
+        };
+
+        currentSearchTask.setOnSucceeded(e -> {
+            filteredFiles.setAll(currentSearchTask.getValue());
+            if (selectedImage.get() != null && !filteredFiles.contains(selectedImage.get())) {
+                updateSelection(Collections.emptyList());
+            }
+        });
+        executor.submit(currentSearchTask);
+    }
 
     private void loadFilters() {
         executor.submit(() -> {
@@ -207,17 +192,10 @@ public class ImageBrowserViewModel implements ViewModel {
                 List<String> rawSamplers = imageRepo.getDistinctValues("Sampler");
                 List<String> rawLoras = imageRepo.getDistinctValues("Loras");
 
-                List<String> cleanModels = normalizeList(rawModels, false);
-                List<String> cleanSamplers = normalizeList(rawSamplers, false);
-                List<String> cleanLoras = normalizeList(rawLoras, true);
-
                 Platform.runLater(() -> {
-                    availableModels.setAll(cleanModels);
-                    availableModels.add(0, "All");
-                    availableSamplers.setAll(cleanSamplers);
-                    availableSamplers.add(0, "All");
-                    loras.setAll(cleanLoras);
-                    loras.add(0, "All");
+                    updateFilterList(availableModels, rawModels, false);
+                    updateFilterList(availableSamplers, rawSamplers, false);
+                    updateFilterList(loras, rawLoras, true);
                 });
             } catch (Exception e) {
                 logger.error("Failed to load filters", e);
@@ -225,81 +203,23 @@ public class ImageBrowserViewModel implements ViewModel {
         });
     }
 
-    private void updateFilter() {
-        String query = searchQuery.get();
-        String modelFilter = selectedModel.get();
-        String samplerFilter = selectedSampler.get();
-        String loraFilter = selectedLora.get();
-
-        filteredFiles.setPredicate(file -> {
-            boolean matchName = true;
-            if (query != null && !query.isBlank()) {
-                String lowerQuery = query.toLowerCase();
-                boolean nameHit = file.getName().toLowerCase().contains(lowerQuery);
-                boolean metaHit = false;
-
-                Map<String, String> meta = currentFolderMetadata.get(file);
-                if (meta != null) {
-                    if (containsIgnoreCase(meta.get("Prompt"), lowerQuery)) metaHit = true;
-                    if (containsIgnoreCase(meta.get("Model"), lowerQuery)) metaHit = true;
-                    if (containsIgnoreCase(meta.get("Seed"), lowerQuery)) metaHit = true;
-                    if (containsIgnoreCase(meta.get("Loras"), lowerQuery)) metaHit = true;
-                }
-                matchName = nameHit || metaHit;
-            }
-            if (!matchName) return false;
-
-            Map<String, String> meta = currentFolderMetadata.get(file);
-            if (!isMatch(meta != null ? meta.get("Model") : null, modelFilter)) return false;
-            if (!isMatch(meta != null ? meta.get("Sampler") : null, samplerFilter)) return false;
-            if (!isMatch(meta != null ? meta.get("Loras") : null, loraFilter)) return false;
-
-            return true;
-        });
-
-        if (selectedImage.get() != null && !filteredFiles.contains(selectedImage.get())) {
-            updateSelection(Collections.emptyList());
-        }
-    }
-
-    private List<String> normalizeList(List<String> input, boolean isLora) {
+    private void updateFilterList(ObservableList<String> list, List<String> raw, boolean isLora) {
         Set<String> unique = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        if (input == null) return new ArrayList<>();
-
-        for (String item : input) {
-            if (item == null || item.isBlank()) continue;
-            if (isLora) {
-                String[] parts = item.split(",");
-                for (String p : parts) {
-                    String clean = cleanLoraName(p.trim());
-                    if (!clean.isEmpty()) unique.add(clean);
+        if (raw != null) {
+            for (String item : raw) {
+                if (item == null || item.isBlank()) continue;
+                if (isLora) {
+                    for (String p : item.split(",")) {
+                        String clean = cleanLoraName(p.trim());
+                        if (!clean.isEmpty()) unique.add(clean);
+                    }
+                } else {
+                    unique.add(item.trim());
                 }
-            } else {
-                unique.add(item.trim());
             }
         }
-        return new ArrayList<>(unique);
-    }
-
-    private String cleanLoraName(String raw) {
-        if (raw.toLowerCase().startsWith("<lora:")) raw = raw.substring(6);
-        if (raw.endsWith(">")) raw = raw.substring(0, raw.length() - 1);
-        int lastColon = raw.lastIndexOf(':');
-        if (lastColon > 0) {
-            String suffix = raw.substring(lastColon + 1);
-            if (suffix.matches("[\\d.]+")) raw = raw.substring(0, lastColon);
-        }
-        return raw.trim();
-    }
-
-    private boolean isMatch(String fileValue, String filterValue) {
-        if (filterValue == null || filterValue.equals("All")) return true;
-        if (fileValue == null) return false;
-        return fileValue.toLowerCase().contains(filterValue.toLowerCase());
-    }
-
-    private boolean containsIgnoreCase(String source, String target) {
-        return source != null && source.toLowerCase().contains(target);
+        list.setAll(new ArrayList<>(unique));
+        list.add(0, "All");
     }
 
     // --- Selection & Sidebar Management ---
@@ -324,12 +244,9 @@ public class ImageBrowserViewModel implements ViewModel {
         activeRating.set(dataManager.getRating(file));
         activeTags.set(dataManager.getTags(file));
 
-        ratingCache.put(file, activeRating.get());
-
         if (dataManager.hasCachedMetadata(file)) {
             activeMetadata.set(dataManager.getCachedMetadata(file));
         } else {
-            activeMetadata.set(new HashMap<>());
             Task<Map<String, String>> metaTask = new Task<>() {
                 @Override
                 protected Map<String, String> call() {
@@ -345,17 +262,15 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
-    // --- Actions & Commands ---
+    // --- File & Rating Operations ---
 
     public void setRating(int rating) {
         activeRating.set(rating);
         List<File> target = new ArrayList<>(selectedImages);
-        executor.submit(() -> {
-            target.forEach(f -> {
-                dataManager.setRating(f, rating);
-                ratingCache.put(f, rating);
-            });
-        });
+        executor.submit(() -> target.forEach(f -> {
+            dataManager.setRating(f, rating);
+            ratingCache.put(f, rating);
+        }));
     }
 
     public void toggleStar() {
@@ -366,26 +281,16 @@ public class ImageBrowserViewModel implements ViewModel {
         if (selectedImages.isEmpty()) return;
         List<File> targets = new ArrayList<>(selectedImages);
         executor.submit(() -> {
-            List<File> deleted = new ArrayList<>();
-            for (File f : targets) if (dataManager.moveFileToTrash(f)) deleted.add(f);
+            List<File> deleted = targets.stream().filter(dataManager::moveFileToTrash).collect(Collectors.toList());
             if (!deleted.isEmpty()) Platform.runLater(() -> {
                 allFolderFiles.removeAll(deleted);
+                filteredFiles.removeAll(deleted);
                 updateSelection(Collections.emptyList());
             });
         });
     }
 
-    public void search(String query) {
-        searchQuery.set(query);
-    }
-
-    public void loadStarred() {
-        allFolderFiles.setAll(dataManager.getStarredFilesList());
-    }
-
-    public File getLastFolder() {
-        return dataManager.getLastFolder();
-    }
+    // --- Collection & Folder Pinning ---
 
     public void refreshCollections() {
         executor.submit(() -> {
@@ -395,22 +300,29 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     public void loadCollection(String name) {
-        allFolderFiles.setAll(dataManager.getFilesFromCollection(name));
+        indexingService.cancel();
+        List<File> c = dataManager.getFilesFromCollection(name);
+        allFolderFiles.setAll(c);
+        filteredFiles.setAll(c);
     }
 
-    public void createNewCollection(String name) {
-        dataManager.createCollection(name);
+    public void createNewCollection(String n) {
+        dataManager.createCollection(n);
         refreshCollections();
     }
 
-    public void deleteCollection(String name) {
-        dataManager.deleteCollection(name);
+    public void deleteCollection(String n) {
+        dataManager.deleteCollection(n);
         refreshCollections();
     }
 
-    public void addSelectedToCollection(String name) {
-        List<File> targets = new ArrayList<>(selectedImages);
-        executor.submit(() -> targets.forEach(f -> dataManager.addImageToCollection(name, f)));
+    public void addSelectedToCollection(String n) {
+        List<File> t = new ArrayList<>(selectedImages);
+        executor.submit(() -> t.forEach(f -> dataManager.addImageToCollection(n, f)));
+    }
+
+    public void addFilesToCollection(String name, List<File> files) {
+        executor.submit(() -> files.forEach(f -> dataManager.addImageToCollection(name, f)));
     }
 
     public void pinFolder(File f) {
@@ -425,7 +337,53 @@ public class ImageBrowserViewModel implements ViewModel {
         return dataManager.getPinnedFolders();
     }
 
-    // --- Property Accessors ---
+    // --- Helpers & Utility ---
+
+    public int getRatingForFile(File file) {
+        if (file == null) return 0;
+        return ratingCache.getOrDefault(file, 0);
+    }
+
+    public String getMetadataValue(File file, String key) {
+        if (file == null || key == null) return "";
+        Map<String, String> meta = currentFolderMetadata.get(file);
+        return meta != null ? meta.getOrDefault(key, "") : "";
+    }
+
+    private boolean isAll(String val) {
+        return val == null || "All".equals(val);
+    }
+
+    private String cleanLoraName(String raw) {
+        if (raw.toLowerCase().startsWith("<lora:")) raw = raw.substring(6);
+        if (raw.endsWith(">")) raw = raw.substring(0, raw.length() - 1);
+        int lastColon = raw.lastIndexOf(':');
+        if (lastColon > 0 && raw.substring(lastColon + 1).matches("[\\d.]+")) {
+            raw = raw.substring(0, lastColon);
+        }
+        return raw.trim();
+    }
+
+    private void cancelActiveTasks() {
+        if (currentSearchTask != null && !currentSearchTask.isDone()) currentSearchTask.cancel(true);
+    }
+
+    public void search(String query) {
+        searchQuery.set(query);
+    }
+
+    public void loadStarred() {
+        indexingService.cancel();
+        List<File> starred = dataManager.getStarredFilesList();
+        allFolderFiles.setAll(starred);
+        filteredFiles.setAll(starred);
+    }
+
+    public File getLastFolder() {
+        return dataManager.getLastFolder();
+    }
+
+    // --- JavaFX Properties & Accessors ---
 
     public IntegerProperty activeRatingProperty() {
         return activeRating;
@@ -477,5 +435,9 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public ObjectProperty<String> selectedLoraProperty() {
         return selectedLora;
+    }
+
+    public int getSelectionCount() {
+        return selectedImages.size();
     }
 }
