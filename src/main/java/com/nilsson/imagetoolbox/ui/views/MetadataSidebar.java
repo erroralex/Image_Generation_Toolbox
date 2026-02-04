@@ -22,18 +22,20 @@ import java.util.regex.Pattern;
 /**
  <h2>MetadataSidebar</h2>
  <p>
- A dedicated inspector panel that displays detailed AI generation metadata for a selected image.
- This component provides a deep dive into prompts, sampler settings, and model information.
+ A specialized inspector panel providing a comprehensive view of AI generation metadata.
+ This component acts as a bridge between the raw image data and the user interface,
+ translating technical parameters into a readable and interactive format.
  </p>
- <h3>Core Features:</h3>
+ * <p>Functional Structure:
  <ul>
- <li><b>Drawer Transitions:</b> Supports both docked (side-panel) and floating (drawer) modes.</li>
- <li><b>Prompt Inspection:</b> Dedicated sections for positive and negative prompts with integrated copy-to-clipboard functionality.</li>
- <li><b>Technical Grid:</b> Organizes complex generation parameters like Sampler, Scheduler, CFG, and Steps into a scannable grid.</li>
- <li><b>Resource Tracking:</b> Dynamically generates "chips" for LoRAs detected in the metadata or prompt text.</li>
- <li><b>Star Rating:</b> Provides an interactive 5-star rating system synchronized with the underlying database.</li>
+ <li><b>Header:</b> Displays filename and provides quick actions like opening file location or viewing raw data.</li>
+ <li><b>Engagement:</b> Features a synchronization-ready 5-star rating system.</li>
+ <li><b>Prompt Analysis:</b> Separates positive and negative prompts into scrollable, copy-friendly blocks.</li>
+ <li><b>Technical Parameters:</b> A structured grid for Samplers, Schedulers, Seeds, and CFG scales.</li>
+ <li><b>Resource Management:</b> Dynamic chip-based display for LoRAs and other external resources.</li>
+ <li><b>Organization:</b> Contextual collection management for quick sorting of assets.</li>
  </ul>
-
+ </p>
  */
 public class MetadataSidebar extends VBox {
 
@@ -64,14 +66,13 @@ public class MetadataSidebar extends VBox {
     private final SidebarActionHandler actionHandler;
     private final TextField inspectorFilename;
     private final HBox starRatingBox;
-    // Removed dockToggleBtn as requested
     private final TextArea promptArea;
     private final TextArea negativePromptArea;
     private final TextField softwareField, modelField, seedField, samplerField, schedulerField, cfgField, stepsField, resField;
     private final FlowPane lorasFlow;
     private final ComboBox<String> collectionCombo;
     private File currentFile;
-    private String currentRawMetadata; // Store raw data for the popup
+    private String currentRawMetadata;
 
     // ------------------------------------------------------------------------
     // Constructor & UI Initialization
@@ -85,7 +86,7 @@ public class MetadataSidebar extends VBox {
         this.setMinWidth(380);
         this.setMaxWidth(380);
 
-        // --- Header Section ---
+        // Header
         VBox headerContainer = new VBox(10);
         headerContainer.getStyleClass().add("inspector-header");
         headerContainer.setAlignment(Pos.CENTER_LEFT);
@@ -100,20 +101,16 @@ public class MetadataSidebar extends VBox {
         buttonRow.setAlignment(Pos.CENTER_LEFT);
 
         Button openFileBtn = createLargeIconButton("fa-folder-open:16:white", "Open Location", e -> openFileLocation(currentFile));
-
-        // Updated Action: Show Raw Metadata Window
         Button rawDataBtn = createLargeIconButton("fa-code:16:white", "Raw Metadata", e -> showRawMetadata());
-
         Button closeBtn = createLargeIconButton("fa-close:16:white", "Close Panel", e -> actionHandler.onClose());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        // Removed dockToggleBtn from the layout
         buttonRow.getChildren().addAll(openFileBtn, rawDataBtn, spacer, closeBtn);
         headerContainer.getChildren().addAll(inspectorFilename, buttonRow);
 
-        // --- Scrollable Content Section ---
+        // Scrollable Content
         ScrollPane scrollContent = new ScrollPane();
         scrollContent.setFitToWidth(true);
         scrollContent.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
@@ -123,7 +120,6 @@ public class MetadataSidebar extends VBox {
         content.setPadding(new Insets(15));
         content.setMaxWidth(350);
 
-        // Interaction: Rating
         starRatingBox = new HBox(5);
         starRatingBox.setAlignment(Pos.CENTER);
         for (int i = 1; i <= 5; i++) {
@@ -140,14 +136,12 @@ public class MetadataSidebar extends VBox {
         metaHeader.setAlignment(Pos.CENTER);
         metaHeader.setMaxWidth(Double.MAX_VALUE);
 
-        // Prompt Areas
         VBox posPromptBox = createPromptSection("PROMPT", true);
         promptArea = (TextArea) posPromptBox.getChildren().get(1);
 
         VBox negPromptBox = createPromptSection("NEGATIVE PROMPT", false);
         negativePromptArea = (TextArea) negPromptBox.getChildren().get(1);
 
-        // Technical Parameter Grid
         GridPane techGrid = new GridPane();
         techGrid.setHgap(15);
         techGrid.setVgap(15);
@@ -161,7 +155,6 @@ public class MetadataSidebar extends VBox {
         cfgField = addTechItem(techGrid, "CFG", 0, 4, 1);
         stepsField = addTechItem(techGrid, "Steps", 1, 4, 1);
 
-        // Resource Flow
         VBox loraBox = new VBox(8);
         Label loraTitle = new Label("RESOURCES / LoRAs");
         loraTitle.getStyleClass().add("section-label");
@@ -169,7 +162,6 @@ public class MetadataSidebar extends VBox {
         lorasFlow.setMaxWidth(340);
         loraBox.getChildren().addAll(loraTitle, lorasFlow);
 
-        // Collection Management
         HBox collectionBox = new HBox(10);
         collectionBox.setAlignment(Pos.CENTER_LEFT);
         collectionCombo = new ComboBox<>();
@@ -209,8 +201,6 @@ public class MetadataSidebar extends VBox {
 
     public void updateData(File file, Map<String, String> meta) {
         this.currentFile = file;
-
-        // Capture raw metadata for the popup
         this.currentRawMetadata = (meta != null) ? meta.get("Raw") : null;
 
         if (file == null) {
@@ -275,11 +265,11 @@ public class MetadataSidebar extends VBox {
     }
 
     public void setDocked(boolean isDocked) {
-        // No-Op: Button was removed, keeping method stub for compatibility with ImageBrowserView
+        // Stub for compatibility with layout orchestrators
     }
 
     // ------------------------------------------------------------------------
-    // Raw Metadata Popup
+    // Raw Metadata Popup Window
     // ------------------------------------------------------------------------
 
     private void showRawMetadata() {
@@ -290,7 +280,6 @@ public class MetadataSidebar extends VBox {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.initOwner(this.getScene().getWindow());
 
-        // Header
         Label header = new Label("Raw Metadata");
         header.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14px;");
         Region spacer = new Region();
@@ -303,15 +292,13 @@ public class MetadataSidebar extends VBox {
         titleBar.setAlignment(Pos.CENTER_LEFT);
         titleBar.setPadding(new Insets(0, 0, 10, 0));
 
-        // Content
         TextArea textArea = new TextArea();
         textArea.setEditable(false);
         textArea.setWrapText(true);
-        textArea.getStyleClass().add("prompt-block"); // Reuse adjusted style
+        textArea.getStyleClass().add("prompt-block");
         textArea.setStyle("-fx-font-family: 'Consolas', 'Monospaced'; -fx-font-size: 12px;");
         VBox.setVgrow(textArea, Priority.ALWAYS);
 
-        // Format JSON if possible
         try {
             String trimmed = currentRawMetadata.trim();
             if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -325,7 +312,6 @@ public class MetadataSidebar extends VBox {
             textArea.setText(currentRawMetadata);
         }
 
-        // Copy Button
         Button copyBtn = new Button("Copy to Clipboard");
         copyBtn.getStyleClass().add("button");
         copyBtn.setMaxWidth(Double.MAX_VALUE);
@@ -337,13 +323,7 @@ public class MetadataSidebar extends VBox {
 
         VBox root = new VBox(10, titleBar, textArea, copyBtn);
         root.setPadding(new Insets(20));
-        // Using app-gradient for the border color
-        root.setStyle(
-                "-fx-background-color: #12141a;" +
-                        "-fx-border-color: linear-gradient(to right, #45a29e 0%, #c45dec 100%);" +
-                        "-fx-border-width: 1;" +
-                        "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.7), 20, 0, 0, 10);"
-        );
+        root.setStyle("-fx-background-color: #12141a; -fx-border-color: linear-gradient(to right, #45a29e 0%, #c45dec 100%); -fx-border-width: 1; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.7), 20, 0, 0, 10);");
 
         Scene scene = new Scene(root, 600, 500);
         if (this.getScene() != null) {
@@ -356,7 +336,7 @@ public class MetadataSidebar extends VBox {
     }
 
     // ------------------------------------------------------------------------
-    // Internal UI Helpers
+    // Internal UI Building Helpers
     // ------------------------------------------------------------------------
 
     private TextField addTechItem(GridPane grid, String title, int col, int row, int colSpan) {

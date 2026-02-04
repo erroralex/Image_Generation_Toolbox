@@ -22,70 +22,70 @@ import java.util.stream.Collectors;
 
 /**
  <h2>ImageBrowserViewModel</h2>
+ <p>
+ The primary ViewModel for the image browsing interface, implementing the MVVM pattern
+ to coordinate between the UI components and the underlying data layer.
+ </p>
+ <p>Key Responsibilities:
+ <ul>
+ <li><b>Asynchronous Indexing:</b> Manages background tasks for folder scanning and batch metadata extraction.</li>
+ <li><b>Dynamic Filtering:</b> Provides observable properties for real-time searching and filtering
+ based on AI metadata (Models, Samplers, LoRAs).</li>
+ <li><b>State Management:</b> Maintains caches for ratings and metadata to ensure smooth UI performance
+ during heavy scrolling.</li>
+ <li><b>Collection Integration:</b> Handles CRUD operations for virtual collections and starred assets.</li>
+ </ul>
+ </p>
  */
 public class ImageBrowserViewModel implements ViewModel {
 
     private static final Logger logger = LoggerFactory.getLogger(ImageBrowserViewModel.class);
-
-    // MISSING CONSTANT ADDED
     private static final int BATCH_SIZE = 50;
 
-    // ------------------------------------------------------------------------
-    // Dependencies
-    // ------------------------------------------------------------------------
+    // --- Dependencies ---
     private final UserDataManager dataManager;
     private final MetadataService metaService;
     private final ImageRepository imageRepo;
     private final ExecutorService executor;
 
-    // ------------------------------------------------------------------------
-    // View State
-    // ------------------------------------------------------------------------
+    // --- View State: Lists & Selection ---
     private final ObservableList<File> selectedImages = FXCollections.observableArrayList();
     private final ObjectProperty<File> selectedImage = new SimpleObjectProperty<>();
-
-    // Filtering & Indexing
     private final ObservableList<File> allFolderFiles = FXCollections.observableArrayList();
     private final FilteredList<File> filteredFiles = new FilteredList<>(allFolderFiles, p -> true);
 
-    // CACHES
+    // --- Caches ---
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
     private final Map<File, Integer> ratingCache = new ConcurrentHashMap<>();
 
-    // Sidebar Properties
+    // --- Sidebar & Attribute Properties ---
     private final ObjectProperty<Map<String, String>> activeMetadata = new SimpleObjectProperty<>(new HashMap<>());
     private final ObjectProperty<Set<String>> activeTags = new SimpleObjectProperty<>(new HashSet<>());
     private final IntegerProperty activeRating = new SimpleIntegerProperty(0);
 
-    // Filter UI Properties
+    // --- Filter & Search Properties ---
     private final StringProperty searchQuery = new SimpleStringProperty("");
-
-    // Lists for dropdowns
     private final ObservableList<String> availableModels = FXCollections.observableArrayList();
     private final ObservableList<String> availableSamplers = FXCollections.observableArrayList();
     private final ObservableList<String> loras = FXCollections.observableArrayList();
-
-    // Default to NULL so checkboxes start "unchecked"
     private final ObjectProperty<String> selectedModel = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
 
+    // --- Collection State ---
     private final ObservableList<String> collectionList = FXCollections.observableArrayList();
-
-    // MISSING FIELD ADDED
     private Task<Void> currentIndexingTask = null;
 
     @Inject
     public ImageBrowserViewModel(UserDataManager dataManager,
                                  MetadataService metaService,
-                                 ImageRepository imageRepo, // Inject Repo
+                                 ImageRepository imageRepo,
                                  ExecutorService executor) {
         this.dataManager = dataManager;
         this.metaService = metaService;
         this.imageRepo = imageRepo;
         this.executor = executor;
 
-        // Establish Filter Listeners
         this.searchQuery.addListener((obs, old, val) -> updateFilter());
         this.selectedModel.addListener((obs, old, val) -> updateFilter());
         this.selectedSampler.addListener((obs, old, val) -> updateFilter());
@@ -94,6 +94,8 @@ public class ImageBrowserViewModel implements ViewModel {
         refreshCollections();
         loadFilters();
     }
+
+    // --- Data Retrieval ---
 
     public int getRatingForFile(File file) {
         if (file == null) return 0;
@@ -118,6 +120,8 @@ public class ImageBrowserViewModel implements ViewModel {
     public int getSelectionCount() {
         return selectedImages.size();
     }
+
+    // --- Folder Loading & Indexing Logic ---
 
     public void loadFolder(File folder) {
         if (folder == null || !folder.isDirectory()) return;
@@ -163,13 +167,11 @@ public class ImageBrowserViewModel implements ViewModel {
                     int end = Math.min(i + BATCH_SIZE, total);
                     List<File> batch = files.subList(i, end);
 
-                    // USE REPOSITORY FOR BATCH FETCH
                     Map<String, Map<String, String>> batchMeta = imageRepo.batchGetMetadata(batch);
 
                     for (File file : batch) {
                         if (isCancelled()) break;
 
-                        // Rating Cache (could also be batched in Repo if needed, but this is fast enough usually)
                         ratingCache.put(file, dataManager.getRating(file));
 
                         if (batchMeta.containsKey(file.getAbsolutePath())) {
@@ -178,7 +180,6 @@ public class ImageBrowserViewModel implements ViewModel {
                         } else if (dataManager.hasCachedMetadata(file)) {
                             currentFolderMetadata.put(file, dataManager.getCachedMetadata(file));
                         } else {
-                            // Miss - Parse File
                             Map<String, String> meta = metaService.getExtractedData(file);
                             dataManager.cacheMetadata(file, meta);
                             currentFolderMetadata.put(file, meta);
@@ -197,10 +198,11 @@ public class ImageBrowserViewModel implements ViewModel {
         executor.submit(currentIndexingTask);
     }
 
+    // --- Filter Management ---
+
     private void loadFilters() {
         executor.submit(() -> {
             try {
-                // USE REPOSITORY
                 List<String> rawModels = imageRepo.getDistinctValues("Model");
                 List<String> rawSamplers = imageRepo.getDistinctValues("Sampler");
                 List<String> rawLoras = imageRepo.getDistinctValues("Loras");
@@ -291,7 +293,6 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     private boolean isMatch(String fileValue, String filterValue) {
-        // Treat NULL or "All" as valid match for everything
         if (filterValue == null || filterValue.equals("All")) return true;
         if (fileValue == null) return false;
         return fileValue.toLowerCase().contains(filterValue.toLowerCase());
@@ -301,9 +302,8 @@ public class ImageBrowserViewModel implements ViewModel {
         return source != null && source.toLowerCase().contains(target);
     }
 
-    // ------------------------------------------------------------------------
-    // Selection & Updates
-    // ------------------------------------------------------------------------
+    // --- Selection & Sidebar Management ---
+
     public void updateSelection(List<File> selection) {
         this.selectedImages.setAll(selection);
         if (selection.isEmpty()) {
@@ -344,6 +344,8 @@ public class ImageBrowserViewModel implements ViewModel {
             executor.submit(metaTask);
         }
     }
+
+    // --- Actions & Commands ---
 
     public void setRating(int rating) {
         activeRating.set(rating);
@@ -422,6 +424,8 @@ public class ImageBrowserViewModel implements ViewModel {
     public List<File> getPinnedFolders() {
         return dataManager.getPinnedFolders();
     }
+
+    // --- Property Accessors ---
 
     public IntegerProperty activeRatingProperty() {
         return activeRating;
