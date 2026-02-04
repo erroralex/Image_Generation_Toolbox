@@ -15,22 +15,35 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- UserDataManager (Final Refactored)
- Acts as a Facade between the UI/ViewModels and the Data Repositories.
- Responsibilities:
- 1. Managing File <-> DB Path conversions (Relative vs Absolute).
- 2. File System operations (Trash, Hashing).
- 3. Delegating data persistence to specific Repositories.
+ <h2>UserDataManager</h2>
+ <p>
+ Acts as the central Facade between the UI/ViewModels and the underlying data repositories.
+ This class abstracts the complexity of data persistence, file system interactions, and
+ path normalization.
+ </p>
+ * <h3>Key Responsibilities:</h3>
+ <ul>
+ <li><b>Path Normalization:</b> Manages the conversion between absolute system paths used by
+ the UI and relative paths stored in the database to ensure library portability.</li>
+ <li><b>Concurrency Control:</b> Implements a {@link ReentrantReadWriteLock} to ensure
+ thread-safe access to the database repositories across background indexing and UI threads.</li>
+ <li><b>File Identity & Integrity:</b> Handles SHA-256 hashing for file tracking and
+ delegates metadata extraction/caching.</li>
+ <li><b>Domain Delegation:</b> Orchestrates operations across {@link ImageRepository},
+ {@link CollectionRepository}, and {@link SettingsRepository}.</li>
+ </ul>
  */
 public class UserDataManager {
 
     private static final Logger logger = LoggerFactory.getLogger(UserDataManager.class);
 
+    // --- Repositories & Services ---
     private final DatabaseService db;
     private final SettingsRepository settingsRepo;
     private final CollectionRepository collectionRepo;
     private final ImageRepository imageRepo;
 
+    // --- Concurrency & Environment ---
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final Lock readLock = rwLock.readLock();
     private final Lock writeLock = rwLock.writeLock();
@@ -49,14 +62,15 @@ public class UserDataManager {
         logger.info("UserDataManager initialized. Library root: {}", libraryRoot);
     }
 
+    /**
+     Gracefully shuts down the underlying database services.
+     */
     public void shutdown() {
         logger.info("Shutting down data services...");
         db.shutdown();
     }
 
-    // ------------------------------------------------------------------------
-    // Path Normalization Logic
-    // ------------------------------------------------------------------------
+    // --- Path Normalization Logic ---
 
     private File resolvePath(String dbPath) {
         if (dbPath == null) return null;
@@ -82,9 +96,7 @@ public class UserDataManager {
         return file.getAbsolutePath().replace("\\", "/");
     }
 
-    // ------------------------------------------------------------------------
-    // Search & Attributes
-    // ------------------------------------------------------------------------
+    // --- Search & Attributes ---
 
     public List<String> getDistinctMetadataValues(String key) {
         readLock.lock();
@@ -117,9 +129,7 @@ public class UserDataManager {
         };
     }
 
-    // ------------------------------------------------------------------------
-    // File Operations & Identity
-    // ------------------------------------------------------------------------
+    // --- File Operations & Identity ---
 
     public boolean moveFileToTrash(File file) {
         if (file == null || !file.exists()) return false;
@@ -172,9 +182,7 @@ public class UserDataManager {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Metadata & Tags
-    // ------------------------------------------------------------------------
+    // --- Metadata & Tags ---
 
     public void cacheMetadata(File file, Map<String, String> meta) {
         if (file == null || meta == null || meta.isEmpty()) return;
@@ -225,9 +233,7 @@ public class UserDataManager {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Ratings & Folders
-    // ------------------------------------------------------------------------
+    // --- Ratings & Folders ---
 
     public int getRating(File file) {
         return imageRepo.getRating(relativizePath(file));
@@ -290,9 +296,7 @@ public class UserDataManager {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Collections
-    // ------------------------------------------------------------------------
+    // --- Collections ---
 
     public List<String> getCollections() {
         return collectionRepo.getAllNames();
@@ -334,9 +338,7 @@ public class UserDataManager {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Settings
-    // ------------------------------------------------------------------------
+    // --- Settings ---
 
     public String getSetting(String key, String defaultValue) {
         return settingsRepo.get(key, defaultValue);
