@@ -1,6 +1,6 @@
 package com.nilsson.imagetoolbox.ui.viewmodels;
 
-import com.nilsson.imagetoolbox.data.DatabaseService;
+import com.nilsson.imagetoolbox.data.ImageRepository;
 import com.nilsson.imagetoolbox.data.UserDataManager;
 import com.nilsson.imagetoolbox.service.MetadataService;
 import de.saxsys.mvvmfx.ViewModel;
@@ -27,12 +27,15 @@ public class ImageBrowserViewModel implements ViewModel {
 
     private static final Logger logger = LoggerFactory.getLogger(ImageBrowserViewModel.class);
 
+    // MISSING CONSTANT ADDED
+    private static final int BATCH_SIZE = 50;
+
     // ------------------------------------------------------------------------
     // Dependencies
     // ------------------------------------------------------------------------
     private final UserDataManager dataManager;
     private final MetadataService metaService;
-    private final DatabaseService databaseService;
+    private final ImageRepository imageRepo;
     private final ExecutorService executor;
 
     // ------------------------------------------------------------------------
@@ -69,14 +72,17 @@ public class ImageBrowserViewModel implements ViewModel {
 
     private final ObservableList<String> collectionList = FXCollections.observableArrayList();
 
+    // MISSING FIELD ADDED
+    private Task<Void> currentIndexingTask = null;
+
     @Inject
     public ImageBrowserViewModel(UserDataManager dataManager,
                                  MetadataService metaService,
-                                 DatabaseService databaseService,
+                                 ImageRepository imageRepo, // Inject Repo
                                  ExecutorService executor) {
         this.dataManager = dataManager;
         this.metaService = metaService;
-        this.databaseService = databaseService;
+        this.imageRepo = imageRepo;
         this.executor = executor;
 
         // Establish Filter Listeners
@@ -115,6 +121,11 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public void loadFolder(File folder) {
         if (folder == null || !folder.isDirectory()) return;
+
+        if (currentIndexingTask != null && !currentIndexingTask.isDone()) {
+            currentIndexingTask.cancel(true);
+        }
+
         dataManager.setLastFolder(folder);
         currentFolderMetadata.clear();
         ratingCache.clear();
@@ -140,52 +151,69 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     private void startIndexing(List<File> files) {
-        Task<Void> indexTask = new Task<>() {
+        if (files.isEmpty()) return;
+
+        currentIndexingTask = new Task<>() {
             @Override
             protected Void call() {
-                for (File file : files) {
+                int total = files.size();
+                for (int i = 0; i < total; i += BATCH_SIZE) {
                     if (isCancelled()) break;
 
-                    ratingCache.put(file, dataManager.getRating(file));
+                    int end = Math.min(i + BATCH_SIZE, total);
+                    List<File> batch = files.subList(i, end);
 
-                    if (dataManager.hasCachedMetadata(file)) {
-                        currentFolderMetadata.put(file, dataManager.getCachedMetadata(file));
-                    } else {
-                        Map<String, String> meta = metaService.getExtractedData(file);
-                        dataManager.cacheMetadata(file, meta);
-                        currentFolderMetadata.put(file, meta);
+                    // USE REPOSITORY FOR BATCH FETCH
+                    Map<String, Map<String, String>> batchMeta = imageRepo.batchGetMetadata(batch);
+
+                    for (File file : batch) {
+                        if (isCancelled()) break;
+
+                        // Rating Cache (could also be batched in Repo if needed, but this is fast enough usually)
+                        ratingCache.put(file, dataManager.getRating(file));
+
+                        if (batchMeta.containsKey(file.getAbsolutePath())) {
+                            currentFolderMetadata.put(file, batchMeta.get(file.getAbsolutePath()));
+                            dataManager.cacheMetadata(file, batchMeta.get(file.getAbsolutePath()));
+                        } else if (dataManager.hasCachedMetadata(file)) {
+                            currentFolderMetadata.put(file, dataManager.getCachedMetadata(file));
+                        } else {
+                            // Miss - Parse File
+                            Map<String, String> meta = metaService.getExtractedData(file);
+                            dataManager.cacheMetadata(file, meta);
+                            currentFolderMetadata.put(file, meta);
+                        }
+                    }
+
+                    Platform.runLater(ImageBrowserViewModel.this::updateFilter);
+                    try {
+                        Thread.sleep(5);
+                    } catch (InterruptedException ignored) {
                     }
                 }
-                Platform.runLater(() -> updateFilter());
                 return null;
             }
         };
-        executor.submit(indexTask);
+        executor.submit(currentIndexingTask);
     }
 
     private void loadFilters() {
         executor.submit(() -> {
             try {
-                List<String> rawModels = databaseService.getDistinctAttribute("Model");
-                List<String> rawSamplers = databaseService.getDistinctAttribute("Sampler");
-                List<String> rawLoras = databaseService.getDistinctAttribute("Loras");
+                // USE REPOSITORY
+                List<String> rawModels = imageRepo.getDistinctValues("Model");
+                List<String> rawSamplers = imageRepo.getDistinctValues("Sampler");
+                List<String> rawLoras = imageRepo.getDistinctValues("Loras");
 
                 List<String> cleanModels = normalizeList(rawModels, false);
                 List<String> cleanSamplers = normalizeList(rawSamplers, false);
                 List<String> cleanLoras = normalizeList(rawLoras, true);
 
                 Platform.runLater(() -> {
-                    // Just set the clean lists. No need to add "All" manually if we use NULL for clear.
-                    // But users might want a way to click "All" to clear selection if UI doesn't allow deselection.
-                    // Standard JavaFX ComboBox doesn't deselect easily.
-                    // So we add "All" as an option that resets the filter.
-
                     availableModels.setAll(cleanModels);
                     availableModels.add(0, "All");
-
                     availableSamplers.setAll(cleanSamplers);
                     availableSamplers.add(0, "All");
-
                     loras.setAll(cleanLoras);
                     loras.add(0, "All");
                 });
