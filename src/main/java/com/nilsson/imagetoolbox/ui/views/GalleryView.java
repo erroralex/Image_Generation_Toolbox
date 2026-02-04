@@ -217,7 +217,7 @@ public class GalleryView extends StackPane {
                 } else {
                     imageView.setImage(null);
                     thumbnailPool.submit(() -> {
-                        Image img = ImageLoader.load(file, 350, 0);
+                        Image img = ImageLoader.load(file, 0, 0);
                         if (img != null) {
                             ThumbnailCache.put(file.getAbsolutePath(), img);
                             Platform.runLater(() -> {
