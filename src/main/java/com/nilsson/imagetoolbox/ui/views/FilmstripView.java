@@ -1,5 +1,7 @@
 package com.nilsson.imagetoolbox.ui.views;
 
+import com.nilsson.imagetoolbox.ui.components.ImageLoader;
+import com.nilsson.imagetoolbox.ui.components.ThumbnailCache;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.embed.swing.SwingFXUtils;
@@ -134,7 +136,7 @@ public class FilmstripView extends VBox {
                 setGraphic(container);
                 setTooltip(new Tooltip(item.getName()));
 
-                Image cached = com.nilsson.imagetoolbox.ui.components.ThumbnailCache.get(item);
+                Image cached = ThumbnailCache.get(item.getAbsolutePath());
                 if (cached != null) {
                     imageView.setImage(cached);
                 } else {
@@ -143,7 +145,7 @@ public class FilmstripView extends VBox {
                     loadingTask = thumbnailPool.submit(() -> {
                         if (Thread.currentThread().isInterrupted()) return;
 
-                        Image img = com.nilsson.imagetoolbox.ui.components.ImageLoader.load(item, 0, 100);
+                        Image img = ImageLoader.load(item, 0, 0);
 
                         if (img != null) {
                             com.nilsson.imagetoolbox.ui.components.ThumbnailCache.put(item.getAbsolutePath(), img);
