@@ -1,15 +1,19 @@
 package com.nilsson.imagetoolbox.ui.views;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.*;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 import org.kordamp.ikonli.javafx.FontIcon;
 
-import java.awt.Desktop;
 import java.io.File;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -21,7 +25,7 @@ import java.util.regex.Pattern;
  A dedicated inspector panel that displays detailed AI generation metadata for a selected image.
  This component provides a deep dive into prompts, sampler settings, and model information.
  </p>
- * <h3>Core Features:</h3>
+ <h3>Core Features:</h3>
  <ul>
  <li><b>Drawer Transitions:</b> Supports both docked (side-panel) and floating (drawer) modes.</li>
  <li><b>Prompt Inspection:</b> Dedicated sections for positive and negative prompts with integrated copy-to-clipboard functionality.</li>
@@ -29,7 +33,7 @@ import java.util.regex.Pattern;
  <li><b>Resource Tracking:</b> Dynamically generates "chips" for LoRAs detected in the metadata or prompt text.</li>
  <li><b>Star Rating:</b> Provides an interactive 5-star rating system synchronized with the underlying database.</li>
  </ul>
- *
+
  */
 public class MetadataSidebar extends VBox {
 
@@ -60,13 +64,14 @@ public class MetadataSidebar extends VBox {
     private final SidebarActionHandler actionHandler;
     private final TextField inspectorFilename;
     private final HBox starRatingBox;
-    private final Button dockToggleBtn;
+    // Removed dockToggleBtn as requested
     private final TextArea promptArea;
     private final TextArea negativePromptArea;
     private final TextField softwareField, modelField, seedField, samplerField, schedulerField, cfgField, stepsField, resField;
     private final FlowPane lorasFlow;
     private final ComboBox<String> collectionCombo;
     private File currentFile;
+    private String currentRawMetadata; // Store raw data for the popup
 
     // ------------------------------------------------------------------------
     // Constructor & UI Initialization
@@ -93,15 +98,19 @@ public class MetadataSidebar extends VBox {
 
         HBox buttonRow = new HBox(15);
         buttonRow.setAlignment(Pos.CENTER_LEFT);
+
         Button openFileBtn = createLargeIconButton("fa-folder-open:16:white", "Open Location", e -> openFileLocation(currentFile));
-        Button rawDataBtn = createLargeIconButton("fa-code:16:white", "Raw Metadata", e -> {
-        });
-        dockToggleBtn = createLargeIconButton("fa-columns:16:white", "Snap to Side", e -> actionHandler.onToggleDock());
+
+        // Updated Action: Show Raw Metadata Window
+        Button rawDataBtn = createLargeIconButton("fa-code:16:white", "Raw Metadata", e -> showRawMetadata());
+
         Button closeBtn = createLargeIconButton("fa-close:16:white", "Close Panel", e -> actionHandler.onClose());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        buttonRow.getChildren().addAll(openFileBtn, rawDataBtn, dockToggleBtn, spacer, closeBtn);
+
+        // Removed dockToggleBtn from the layout
+        buttonRow.getChildren().addAll(openFileBtn, rawDataBtn, spacer, closeBtn);
         headerContainer.getChildren().addAll(inspectorFilename, buttonRow);
 
         // --- Scrollable Content Section ---
@@ -200,6 +209,10 @@ public class MetadataSidebar extends VBox {
 
     public void updateData(File file, Map<String, String> meta) {
         this.currentFile = file;
+
+        // Capture raw metadata for the popup
+        this.currentRawMetadata = (meta != null) ? meta.get("Raw") : null;
+
         if (file == null) {
             inspectorFilename.setText("No Selection");
             promptArea.setText("");
@@ -262,8 +275,84 @@ public class MetadataSidebar extends VBox {
     }
 
     public void setDocked(boolean isDocked) {
-        FontIcon icon = (FontIcon) dockToggleBtn.getGraphic();
-        icon.setIconLiteral(isDocked ? "fa-columns:16:#0078d7" : "fa-columns:16:white");
+        // No-Op: Button was removed, keeping method stub for compatibility with ImageBrowserView
+    }
+
+    // ------------------------------------------------------------------------
+    // Raw Metadata Popup
+    // ------------------------------------------------------------------------
+
+    private void showRawMetadata() {
+        if (currentRawMetadata == null || currentRawMetadata.isEmpty()) return;
+
+        Stage stage = new Stage();
+        stage.initStyle(StageStyle.UNDECORATED);
+        stage.initModality(Modality.APPLICATION_MODAL);
+        stage.initOwner(this.getScene().getWindow());
+
+        // Header
+        Label header = new Label("Raw Metadata");
+        header.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14px;");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button closeBtn = new Button();
+        closeBtn.setGraphic(new FontIcon("fa-times:14:white"));
+        closeBtn.setStyle("-fx-background-color: transparent; -fx-cursor: hand;");
+        closeBtn.setOnAction(e -> stage.close());
+        HBox titleBar = new HBox(header, spacer, closeBtn);
+        titleBar.setAlignment(Pos.CENTER_LEFT);
+        titleBar.setPadding(new Insets(0, 0, 10, 0));
+
+        // Content
+        TextArea textArea = new TextArea();
+        textArea.setEditable(false);
+        textArea.setWrapText(true);
+        textArea.getStyleClass().add("prompt-block"); // Reuse adjusted style
+        textArea.setStyle("-fx-font-family: 'Consolas', 'Monospaced'; -fx-font-size: 12px;");
+        VBox.setVgrow(textArea, Priority.ALWAYS);
+
+        // Format JSON if possible
+        try {
+            String trimmed = currentRawMetadata.trim();
+            if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                ObjectMapper mapper = new ObjectMapper();
+                Object json = mapper.readValue(trimmed, Object.class);
+                textArea.setText(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(json));
+            } else {
+                textArea.setText(currentRawMetadata);
+            }
+        } catch (Exception e) {
+            textArea.setText(currentRawMetadata);
+        }
+
+        // Copy Button
+        Button copyBtn = new Button("Copy to Clipboard");
+        copyBtn.getStyleClass().add("button");
+        copyBtn.setMaxWidth(Double.MAX_VALUE);
+        copyBtn.setOnAction(e -> {
+            ClipboardContent cc = new ClipboardContent();
+            cc.putString(textArea.getText());
+            Clipboard.getSystemClipboard().setContent(cc);
+        });
+
+        VBox root = new VBox(10, titleBar, textArea, copyBtn);
+        root.setPadding(new Insets(20));
+        // Using app-gradient for the border color
+        root.setStyle(
+                "-fx-background-color: #12141a;" +
+                        "-fx-border-color: linear-gradient(to right, #45a29e 0%, #c45dec 100%);" +
+                        "-fx-border-width: 1;" +
+                        "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.7), 20, 0, 0, 10);"
+        );
+
+        Scene scene = new Scene(root, 600, 500);
+        if (this.getScene() != null) {
+            scene.getStylesheets().addAll(this.getScene().getStylesheets());
+        }
+
+        stage.setScene(scene);
+        stage.centerOnScreen();
+        stage.show();
     }
 
     // ------------------------------------------------------------------------
