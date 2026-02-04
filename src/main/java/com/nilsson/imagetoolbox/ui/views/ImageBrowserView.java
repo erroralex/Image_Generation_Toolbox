@@ -150,9 +150,13 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
         setViewMode(ViewMode.BROWSER);
 
+        // STARTUP LOGIC: Load last folder AND select it in tree
         Platform.runLater(() -> {
             File lastFolder = viewModel.getLastFolder();
-            if (lastFolder != null && lastFolder.exists()) viewModel.loadFolder(lastFolder);
+            if (lastFolder != null && lastFolder.exists()) {
+                viewModel.loadFolder(lastFolder);
+                folderNav.selectFolder(lastFolder); // <--- Added missing sync call
+            }
             this.requestFocus();
         });
     }
@@ -465,7 +469,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             boolean s = false;
             if (e.getDragboard().hasFiles()) {
                 File f = e.getDragboard().getFiles().get(0);
-                viewModel.loadFolder(f.isDirectory() ? f : f.getParentFile());
+                File dir = f.isDirectory() ? f : f.getParentFile();
+                viewModel.loadFolder(dir);
+                folderNav.selectFolder(dir); // <--- Sync tree on drop
                 s = true;
             }
             dropOverlay.setVisible(false);

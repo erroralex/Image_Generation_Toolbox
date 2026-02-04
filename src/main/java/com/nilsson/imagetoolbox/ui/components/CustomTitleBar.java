@@ -151,24 +151,34 @@ public class CustomTitleBar extends HBox {
     }
 
     private void handleSnap(Stage stage, Button maxBtn, double x, double y) {
-        // (Snap logic remains unchanged, but relies on toggleMaximize which is now fixed)
         Screen screen = getScreenForCursor(x, y);
         Rectangle2D bounds = screen.getVisualBounds();
 
         boolean left = x <= bounds.getMinX() + SNAP_THRESHOLD;
         boolean right = x >= bounds.getMaxX() - SNAP_THRESHOLD;
         boolean top = y <= bounds.getMinY() + SNAP_THRESHOLD;
-        // ... (Rest of logic matches original)
         boolean bottom = y >= bounds.getMaxY() - SNAP_THRESHOLD;
 
-        if (top && left)
+        // 1. Quadrants (Corners)
+        if (top && left) {
             snapToRect(stage, bounds.getMinX(), bounds.getMinY(), bounds.getWidth() / 2, bounds.getHeight() / 2);
-        else if (top && right)
+        } else if (top && right) {
             snapToRect(stage, bounds.getMinX() + bounds.getWidth() / 2, bounds.getMinY(), bounds.getWidth() / 2, bounds.getHeight() / 2);
+        } else if (bottom && left) {
+            snapToRect(stage, bounds.getMinX(), bounds.getMinY() + bounds.getHeight() / 2, bounds.getWidth() / 2, bounds.getHeight() / 2);
+        } else if (bottom && right) {
+            snapToRect(stage, bounds.getMinX() + bounds.getWidth() / 2, bounds.getMinY() + bounds.getHeight() / 2, bounds.getWidth() / 2, bounds.getHeight() / 2);
+        }
+        // 2. Full Screen (Top Edge)
         else if (top) {
             if (!isMaximized(stage)) toggleMaximize(stage, maxBtn);
         }
-        // ... etc
+        // 3. Half Screen (Side Edges) - NEW LOGIC
+        else if (left) {
+            snapToRect(stage, bounds.getMinX(), bounds.getMinY(), bounds.getWidth() / 2, bounds.getHeight());
+        } else if (right) {
+            snapToRect(stage, bounds.getMinX() + bounds.getWidth() / 2, bounds.getMinY(), bounds.getWidth() / 2, bounds.getHeight());
+        }
     }
 
     private void snapToRect(Stage stage, double x, double y, double w, double h) {
