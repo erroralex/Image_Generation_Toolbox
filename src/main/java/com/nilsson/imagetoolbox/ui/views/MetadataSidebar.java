@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
  This component acts as a bridge between the raw image data and the user interface,
  translating technical parameters into a readable and interactive format.
  </p>
- * <p>Functional Structure:
+ <p>Functional Structure:
  <ul>
  <li><b>Header:</b> Displays filename and provides quick actions like opening file location or viewing raw data.</li>
  <li><b>Engagement:</b> Features a synchronization-ready 5-star rating system.</li>
@@ -125,7 +125,9 @@ public class MetadataSidebar extends VBox {
         for (int i = 1; i <= 5; i++) {
             Button star = new Button();
             star.getStyleClass().add("star-button");
-            star.setGraphic(new FontIcon("fa-star-o:20:#808080"));
+            FontIcon icon = new FontIcon("fa-star-o");
+            icon.setIconSize(20);
+            star.setGraphic(icon);
             final int r = i;
             star.setOnAction(e -> actionHandler.onSetRating(r));
             starRatingBox.getChildren().add(star);
@@ -253,8 +255,18 @@ public class MetadataSidebar extends VBox {
         for (int i = 0; i < starRatingBox.getChildren().size(); i++) {
             Button b = (Button) starRatingBox.getChildren().get(i);
             FontIcon icon = (FontIcon) b.getGraphic();
-            if (i < rating) icon.setIconLiteral("fa-star:20:#FFD700");
-            else icon.setIconLiteral("fa-star-o:20:#808080");
+
+            boolean filled = i < rating;
+
+            if (filled) {
+                icon.setIconLiteral("fa-star");
+                icon.setIconSize(20);
+                icon.setStyle("-fx-fill: #FFD700 !important; -fx-icon-color: #FFD700 !important;");
+            } else {
+                icon.setIconLiteral("fa-star-o");
+                icon.setIconSize(20);
+                icon.setStyle(null);
+            }
         }
     }
 

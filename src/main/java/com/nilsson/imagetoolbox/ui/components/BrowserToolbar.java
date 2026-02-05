@@ -17,7 +17,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 /**
  A specialized UI component providing a centered, "Pill-style" floating toolbar
  for browser navigation and asset filtering.
- * <p>The toolbar is organized into three primary functional zones:
+ <p>The toolbar is organized into three primary functional zones:
  <ul>
  <li><b>Search:</b> A text input with a conditional clear button for real-time filtering.</li>
  <li><b>Metadata Filters:</b> Dynamic MenuButton controls for Model, Sampler, and LoRA categories,
@@ -25,7 +25,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
  <li><b>View Controls:</b> Toggle controls for switching between Gallery and Single view modes,
  along with a contextual card-size slider.</li>
  </ul>
- * <p>This component is designed to be overlayed or positioned at the top of an image browser,
+ <p>This component is designed to be overlayed or positioned at the top of an image browser,
  maintaining a maximum width to preserve its floating aesthetic.</p>
  */
 public class BrowserToolbar extends HBox {
@@ -45,7 +45,8 @@ public class BrowserToolbar extends HBox {
     public BrowserToolbar(StringProperty searchQuery,
                           ObservableList<String> models, ObjectProperty<String> selectedModel,
                           ObservableList<String> samplers, ObjectProperty<String> selectedSampler,
-                          ObservableList<String> loras, ObjectProperty<String> selectedLora) {
+                          ObservableList<String> loras, ObjectProperty<String> selectedLora,
+                          ObservableList<String> stars, ObjectProperty<String> selectedStar) {
 
         this.getStyleClass().add("browser-toolbar");
         this.setAlignment(Pos.CENTER_LEFT);
@@ -94,6 +95,7 @@ public class BrowserToolbar extends HBox {
         HBox modelFilter = createFilterControl("Model", models, selectedModel);
         HBox samplerFilter = createFilterControl("Sampler", samplers, selectedSampler);
         HBox loraFilter = createFilterControl("LoRA", loras, selectedLora);
+        HBox starFilter = createFilterControl("Stars", stars, selectedStar);
 
         // 3. Controls Section
         HBox viewControls = new HBox(8);
@@ -130,7 +132,7 @@ public class BrowserToolbar extends HBox {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        this.getChildren().addAll(searchContainer, modelFilter, samplerFilter, loraFilter, spacer, viewControls);
+        this.getChildren().addAll(searchContainer, modelFilter, samplerFilter, loraFilter, starFilter, spacer, viewControls);
     }
 
     // --- Public API ---
@@ -177,6 +179,30 @@ public class BrowserToolbar extends HBox {
         return btn;
     }
 
+    private HBox createStarRating(int rating) {
+        HBox box = new HBox(2);
+        box.setAlignment(Pos.CENTER_LEFT);
+        for (int i = 1; i <= 5; i++) {
+            // FIX: Use "fa-star" for filled, "fa-star-o" (outline) for empty.
+            // This shape difference is crucial for visibility.
+            FontIcon star = new FontIcon(i <= rating ? "fa-star" : "fa-star-o");
+            star.setIconSize(12);
+
+            if (i <= rating) {
+                // FIX: Force Yellow for filled stars, overriding the global gradient.
+                // Using !important ensures it takes precedence over dark-theme.css
+                star.setStyle("-fx-fill: #FFD700 !important; -fx-icon-color: #FFD700 !important;");
+            } else {
+                // FIX: For empty stars, do not set a style.
+                // This allows them to inherit the global .ikonli-font-icon style from CSS,
+                // which applies the 'gradient' you requested (gradient outline).
+                star.setStyle(null);
+            }
+            box.getChildren().add(star);
+        }
+        return box;
+    }
+
     private HBox createFilterControl(String label, ObservableList<String> items, ObjectProperty<String> boundProperty) {
         HBox container = new HBox(6);
         container.setAlignment(Pos.CENTER_LEFT);
@@ -187,7 +213,13 @@ public class BrowserToolbar extends HBox {
         Runnable populateMenu = () -> {
             menuBtn.getItems().clear();
             for (String item : items) {
-                MenuItem mi = new MenuItem(item);
+                MenuItem mi = new MenuItem();
+                if ("Stars".equals(label)) {
+                    mi.setGraphic(createStarRating(Integer.parseInt(item)));
+                    mi.setText(""); // Graphic only
+                } else {
+                    mi.setText(item);
+                }
                 mi.setOnAction(e -> boundProperty.set(item));
                 menuBtn.getItems().add(mi);
             }
@@ -213,7 +245,11 @@ public class BrowserToolbar extends HBox {
         Runnable updateChip = () -> {
             String val = boundProperty.get();
             if (val != null && !val.isEmpty()) {
-                chip.setText(val);
+                if ("Stars".equals(label)) {
+                    chip.setText(val + " ★");
+                } else {
+                    chip.setText(val);
+                }
                 if (!container.getChildren().contains(chip)) {
                     container.getChildren().add(chip);
                 }

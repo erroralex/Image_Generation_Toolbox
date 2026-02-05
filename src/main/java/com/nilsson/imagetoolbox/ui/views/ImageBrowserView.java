@@ -112,7 +112,8 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
                 viewModel.searchQueryProperty(),
                 viewModel.getModels(), viewModel.selectedModelProperty(),
                 viewModel.getSamplers(), viewModel.selectedSamplerProperty(),
-                viewModel.getLoras(), viewModel.selectedLoraProperty()
+                viewModel.getLoras(), viewModel.selectedLoraProperty(),
+                viewModel.getStars(), viewModel.selectedStarProperty()
         );
 
         toolbar.setOnGridAction(() -> setViewMode(ViewMode.GALLERY));

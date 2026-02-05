@@ -2,6 +2,7 @@ package com.nilsson.imagetoolbox.main;
 
 import com.google.inject.Inject;
 import com.google.inject.Module;
+import com.nilsson.imagetoolbox.service.IndexingService;
 import com.nilsson.imagetoolbox.ui.RootLayout;
 import com.nilsson.imagetoolbox.ui.factory.ViewFactory;
 import de.saxsys.mvvmfx.guice.MvvmfxGuiceApplication;
@@ -14,6 +15,7 @@ import javafx.stage.StageStyle;
 
 import javax.imageio.ImageIO;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  <h2>MainApp</h2>
@@ -44,6 +46,9 @@ public class MainApp extends MvvmfxGuiceApplication {
 
     @Inject
     private ViewFactory viewFactory;
+
+    @Inject
+    private IndexingService indexingService;
 
     // ------------------------------------------------------------------------
     // Static Initializer
@@ -89,7 +94,22 @@ public class MainApp extends MvvmfxGuiceApplication {
         stage.setY(visualBounds.getMinY());
         stage.setWidth(visualBounds.getWidth());
         stage.setHeight(visualBounds.getHeight());
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                // FIX: Use the injected field
+                if (indexingService != null) {
+                    indexingService.reconcileLibrary();
+                } else {
+                    System.err.println("IndexingService was not injected!");
+                }
+            } catch (Exception e) {
+                System.err.println("Startup reconciliation failed: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
     }
+
 
     // ------------------------------------------------------------------------
     // Entry Point

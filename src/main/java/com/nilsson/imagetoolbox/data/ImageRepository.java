@@ -7,6 +7,7 @@ import javax.inject.Inject;
 import java.io.File;
 import java.sql.*;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -77,6 +78,39 @@ public class ImageRepository {
         }
     }
 
+    /**
+     Streams all file paths from the database to the provided consumer.
+     Uses a forward-only ResultSet to avoid loading all paths into memory.
+     This is used for low-priority background reconciliation.
+     */
+    public void forEachFilePath(Consumer<String> action) {
+        String sql = "SELECT file_path FROM images";
+        try (Connection conn = db.connect();
+             Statement stmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                String path = rs.getString("file_path");
+                if (path != null) {
+                    action.accept(path);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error streaming file paths", e);
+        }
+    }
+
+    /**
+     Retrieves all file paths currently stored in the database.
+
+     @deprecated Use forEachFilePath for large datasets to avoid OOM.
+     */
+    public List<String> getAllFilePaths() {
+        List<String> paths = new ArrayList<>();
+        forEachFilePath(paths::add);
+        return paths;
+    }
+
     // --- Search ---
 
     public List<String> findPaths(String query, Map<String, String> filters, int limit) {
@@ -92,15 +126,21 @@ public class ImageRepository {
 
             if (hasTextQuery) {
                 sql.append("AND fts.global_text MATCH ? ");
-                params.add(query.replace("'", "''"));
+                params.add(query);
             }
 
             if (filters != null) {
                 for (Map.Entry<String, String> entry : filters.entrySet()) {
                     if (entry.getValue() == null || "All".equals(entry.getValue())) continue;
-                    sql.append("AND EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.key = ? AND m.value = ?) ");
-                    params.add(entry.getKey());
-                    params.add(entry.getValue());
+
+                    if ("Rating".equals(entry.getKey())) {
+                        sql.append("AND i.rating = ? ");
+                        params.add(entry.getValue());
+                    } else {
+                        sql.append("AND EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.key = ? AND m.value = ?) ");
+                        params.add(entry.getKey());
+                        params.add(entry.getValue());
+                    }
                 }
             }
             sql.append("LIMIT ?");
