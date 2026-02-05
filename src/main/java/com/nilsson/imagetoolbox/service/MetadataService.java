@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nilsson.imagetoolbox.service.parser.TextParamsParser;
 import com.nilsson.imagetoolbox.service.strategy.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -42,6 +44,8 @@ import java.util.*;
  </ul>
  */
 public class MetadataService {
+
+    private static final Logger logger = LoggerFactory.getLogger(MetadataService.class);
 
     // ==================================================================================
     // Configuration & State
@@ -147,7 +151,7 @@ public class MetadataService {
                 return javafx.embed.swing.SwingFXUtils.toFXImage(bImg, null);
             }
         } catch (Exception e) {
-            System.err.println("ImageIO failed for " + file.getName() + ": " + e.getMessage());
+            logger.error("ImageIO failed for {}: {}", file.getName(), e.getMessage());
         }
         return new javafx.scene.image.Image(file.toURI().toString());
     }

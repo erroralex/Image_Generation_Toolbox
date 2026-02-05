@@ -2,6 +2,8 @@ package com.nilsson.imagetoolbox.data;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.sql.*;
@@ -11,7 +13,7 @@ import java.util.List;
 /**
  Core service responsible for database connectivity, connection pooling,
  and schema migration management for the Image Toolbox application.
- * <p>This service utilizes HikariCP for high-performance connection pooling
+ <p>This service utilizes HikariCP for high-performance connection pooling
  and handles the lifecycle of the SQLite database, including:
  <ul>
  <li>Automatic creation of data directories and database files.</li>
@@ -19,11 +21,12 @@ import java.util.List;
  <li>Global database configuration (WAL mode, Foreign Keys, Synchronous settings).</li>
  <li>Providing thread-safe connections to repository layers.</li>
  </ul>
- * <p>The schema covers image records, metadata, tags, FTS (Full-Text Search),
+ <p>The schema covers image records, metadata, tags, FTS (Full-Text Search),
  collections, and application settings.</p>
  */
 public class DatabaseService {
 
+    private static final Logger logger = LoggerFactory.getLogger(DatabaseService.class);
     private static final String DEFAULT_DB_URL = "jdbc:sqlite:data/library.db";
     private static final int CURRENT_DB_VERSION = 1;
     private final HikariDataSource dataSource;
@@ -70,6 +73,7 @@ public class DatabaseService {
 
     public void shutdown() {
         if (dataSource != null && !dataSource.isClosed()) {
+            logger.info("Closing HikariDataSource...");
             dataSource.close();
         }
     }
@@ -86,7 +90,7 @@ public class DatabaseService {
             int currentVersion = getDatabaseVersion(conn);
 
             if (currentVersion < CURRENT_DB_VERSION) {
-                System.out.println("Initializing Database Schema (v1)...");
+                logger.info("Initializing Database Schema (v1)...");
                 try {
                     applyInitialSchema(conn);
                     setDatabaseVersion(conn, CURRENT_DB_VERSION);
@@ -187,7 +191,7 @@ public class DatabaseService {
                 if (val != null && !val.isBlank()) results.add(val);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Failed to get distinct attribute: {}", attributeKey, e);
         }
         return results;
     }
