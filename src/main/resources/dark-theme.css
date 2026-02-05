@@ -22,7 +22,7 @@
     -app-red-warning: #ff4d4d;
 
     /* -------- Gradients -------- */
-    -app-grad-primary: linear-gradient(to right, #45a29e 0%, #c45dec 100%);
+    -app-grad-primary: linear-gradient(to right, #00d4ff 0%, #7a2aff 100%);
     -app-grad-hover: linear-gradient(to right, #66fcf1 0%, #d870ff 100%);
     -app-grad-text: linear-gradient(to right, #00d4ff 0%, #7a2aff 100%);
 
