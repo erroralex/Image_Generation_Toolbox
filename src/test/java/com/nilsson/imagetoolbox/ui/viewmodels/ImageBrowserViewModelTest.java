@@ -8,29 +8,43 @@ import javafx.application.Platform;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.mockito.ArgumentMatchers.any;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- Unit tests for the {@link ImageBrowserViewModel} class.
- * <p>This test suite ensures the proper initialization and behavior of the Image Browser's
- view model logic. It utilizes Mockito for dependency mocking and a custom
- {@code DirectExecutor} to ensure asynchronous tasks are executed predictably
- on the calling thread during testing.</p>
- * <p>The class also handles the lifecycle of the JavaFX runtime to prevent
- toolkit initialization errors commonly encountered when testing UI-bound components.</p>
+ <h2>ImageBrowserViewModelTest</h2>
+ <p>
+ This test suite validates the orchestration logic within the {@link ImageBrowserViewModel}.
+ It ensures that user interactions (filtering, selection, searching) correctly invoke
+ underlying repositories and update the observable UI state.
+ </p>
+ * <h3>Key Testing Strategies:</h3>
+ <ul>
+ <li><b>Direct Execution:</b> Background tasks are executed synchronously via {@link DirectExecutor}
+ to maintain test determinism.</li>
+ <li><b>FX Thread Synchronization:</b> Uses {@code Platform.runLater} with a {@code CountDownLatch}
+ to bridge the gap between JUnit threads and the JavaFX Application Thread.</li>
+ <li><b>Mocking Layer:</b> Isolates business logic from I/O bound services using Mockito.</li>
+ </ul>
  */
 class ImageBrowserViewModelTest {
 
-    // --- Dependencies & Mocks ---
+    // --- Dependencies ---
 
     @Mock
     private UserDataManager dataManager;
@@ -44,64 +58,129 @@ class ImageBrowserViewModelTest {
     private ImageBrowserViewModel viewModel;
     private final ExecutorService executor = new DirectExecutor();
 
+    @TempDir
+    Path tempDir;
+
     // --- Lifecycle Methods ---
 
-    /**
-     Initializes the JavaFX runtime once before any tests in this class run.
-     This prevents "Toolkit not initialized" exceptions.
-     */
     @BeforeAll
     static void initToolkit() {
         try {
             Platform.startup(() -> {
             });
         } catch (IllegalStateException e) {
-            // Ignore if toolkit is already active
+            // Toolkit already initialized
         }
     }
 
-    /**
-     Prepares the test environment before each individual test case.
-     Sets up Mockito mocks and defines default behaviors for repository calls
-     to prevent NullPointerExceptions during view model instantiation.
-     */
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-
         when(dataManager.getCollections()).thenReturn(Collections.emptyList());
         when(imageRepo.getDistinctValues(any())).thenReturn(Collections.emptyList());
 
-        viewModel = new ImageBrowserViewModel(
-                dataManager,
-                metaService,
-                imageRepo,
-                indexingService,
-                executor
-        );
+        viewModel = new ImageBrowserViewModel(dataManager, metaService, imageRepo, indexingService, executor);
+        waitForFxEvents();
     }
 
-    // --- Unit Tests ---
+    // --- Logic Tests ---
 
     @Test
     void testInitialization() {
         assertNotNull(viewModel.getFilteredFiles());
-        assertNotNull(viewModel.getModels());
     }
 
-    // --- Inner Helper Classes ---
+    @Test
+    void testModelFilterTriggersSearch() throws IOException {
+        File dummyFile = tempDir.resolve("test.png").toFile();
+        assertTrue(dummyFile.createNewFile());
+
+        when(imageRepo.findPaths(anyString(), anyMap(), anyInt()))
+                .thenReturn(List.of(dummyFile.getAbsolutePath()));
+
+        viewModel.selectedModelProperty().set("SDXL");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("Model", "SDXL");
+        verify(imageRepo).findPaths(eq(""), eq(expected), anyInt());
+
+        waitForFxEvents();
+        assertEquals(1, viewModel.getFilteredFiles().size());
+    }
+
+    @Test
+    void testSelectionUpdatesActiveMetadata() {
+        File file = new File("test.png");
+        Map<String, String> meta = Map.of("Prompt", "Sunset", "Model", "v1.5");
+        when(dataManager.hasCachedMetadata(file)).thenReturn(false);
+        when(metaService.getExtractedData(file)).thenReturn(meta);
+
+        viewModel.updateSelection(List.of(file));
+        waitForFxEvents();
+
+        assertEquals("Sunset", viewModel.activeMetadataProperty().get().get("Prompt"));
+        verify(dataManager).cacheMetadata(file, meta);
+    }
+
+    @Test
+    void testCombinedFilters() throws IOException {
+        File dummyFile = tempDir.resolve("f.png").toFile();
+        assertTrue(dummyFile.createNewFile());
+        when(imageRepo.findPaths(anyString(), anyMap(), anyInt()))
+                .thenReturn(List.of(dummyFile.getAbsolutePath()));
+
+        viewModel.selectedModelProperty().set("SDXL");
+        viewModel.selectedSamplerProperty().set("Euler");
+        waitForFxEvents();
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("Model", "SDXL");
+        expected.put("Sampler", "Euler");
+        verify(imageRepo).findPaths(eq(""), eq(expected), anyInt());
+    }
+
+    // --- Helper Logic ---
+
+    private void waitForFxEvents() {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        Platform.runLater(latch::countDown);
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     /**
-     A synchronous implementation of {@link ExecutorService} for testing purposes.
-     * <p>This class overrides the standard asynchronous behavior of an Executor,
-     forcing all submitted tasks to run immediately on the current thread. This
-     ensures that tests involving background tasks remain deterministic and thread-safe.</p>
+     A synchronous ExecutorService implementation used to flatten asynchronous logic
+     during unit tests, ensuring sequential execution on the test thread.
      */
     static class DirectExecutor implements ExecutorService {
 
         @Override
-        public void execute(Runnable command) {
-            command.run();
+        public void execute(Runnable r) {
+            r.run();
+        }
+
+        @Override
+        public <T> java.util.concurrent.Future<T> submit(java.util.concurrent.Callable<T> t) {
+            try {
+                return java.util.concurrent.CompletableFuture.completedFuture(t.call());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        public <T> java.util.concurrent.Future<T> submit(Runnable t, T r) {
+            t.run();
+            return java.util.concurrent.CompletableFuture.completedFuture(r);
+        }
+
+        @Override
+        public java.util.concurrent.Future<?> submit(Runnable t) {
+            t.run();
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
         }
 
         @Override
@@ -124,48 +203,27 @@ class ImageBrowserViewModelTest {
         }
 
         @Override
-        public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) {
+        public boolean awaitTermination(long t, java.util.concurrent.TimeUnit u) {
             return true;
         }
 
         @Override
-        public <T> java.util.concurrent.Future<T> submit(java.util.concurrent.Callable<T> task) {
-            try {
-                return java.util.concurrent.CompletableFuture.completedFuture(task.call());
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        @Override
-        public <T> java.util.concurrent.Future<T> submit(Runnable task, T result) {
-            task.run();
-            return java.util.concurrent.CompletableFuture.completedFuture(result);
-        }
-
-        @Override
-        public java.util.concurrent.Future<?> submit(Runnable task) {
-            task.run();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public <T> List<java.util.concurrent.Future<T>> invokeAll(java.util.Collection<? extends java.util.concurrent.Callable<T>> tasks) {
+        public <T> List<java.util.concurrent.Future<T>> invokeAll(java.util.Collection<? extends java.util.concurrent.Callable<T>> t) {
             return Collections.emptyList();
         }
 
         @Override
-        public <T> List<java.util.concurrent.Future<T>> invokeAll(java.util.Collection<? extends java.util.concurrent.Callable<T>> tasks, long timeout, java.util.concurrent.TimeUnit unit) {
+        public <T> List<java.util.concurrent.Future<T>> invokeAll(java.util.Collection<? extends java.util.concurrent.Callable<T>> t, long o, java.util.concurrent.TimeUnit u) {
             return Collections.emptyList();
         }
 
         @Override
-        public <T> T invokeAny(java.util.Collection<? extends java.util.concurrent.Callable<T>> tasks) {
+        public <T> T invokeAny(java.util.Collection<? extends java.util.concurrent.Callable<T>> t) {
             return null;
         }
 
         @Override
-        public <T> T invokeAny(java.util.Collection<? extends java.util.concurrent.Callable<T>> tasks, long timeout, java.util.concurrent.TimeUnit unit) {
+        public <T> T invokeAny(java.util.Collection<? extends java.util.concurrent.Callable<T>> t, long o, java.util.concurrent.TimeUnit u) {
             return null;
         }
     }

@@ -359,7 +359,31 @@ public class ImageRepository {
         }
     }
 
+    /**
+     Retrieves a list of distinct values for a given metadata key.
+     <p>
+     Used primarily for populating filter dropdowns in the UI (e.g., Models, Samplers).
+     </p>
+
+     @param key The metadata key to search for (e.g., "Model").
+
+     @return A list of unique string values, sorted alphabetically.
+     */
     public List<String> getDistinctValues(String key) {
-        return db.getDistinctAttribute(key);
+        List<String> results = new ArrayList<>();
+        String sql = "SELECT DISTINCT value FROM image_metadata WHERE key = ? ORDER BY value ASC";
+        try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, key);
+            ResultSet rs = pstmt.executeQuery();
+            while (rs.next()) {
+                String val = rs.getString("value");
+                if (val != null && !val.isBlank()) {
+                    results.add(val);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to fetch distinct values for key: {}", key, e);
+        }
+        return results;
     }
 }

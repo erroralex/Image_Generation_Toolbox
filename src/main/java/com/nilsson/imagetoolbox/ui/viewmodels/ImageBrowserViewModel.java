@@ -28,14 +28,10 @@ import java.util.stream.Collectors;
  </p>
  <h3>Key Responsibilities:</h3>
  <ul>
- <li><b>State Management:</b> Maintains {@link ObservableList} and {@link Property} objects
- for UI data binding, including selected images, filtered results, and metadata.</li>
- <li><b>Asynchronous Processing:</b> Delegates heavy indexing tasks to {@link IndexingService}
- and manages local background tasks via an {@link ExecutorService}.</li>
- <li><b>Filtering & Search:</b> Provides SQL-backed search capabilities and manages
- distinct filter values for Models, Samplers, and Loras.</li>
- <li><b>Collection Management:</b> Interfaces with {@link UserDataManager} to handle
- user-defined collections, pinned folders, and file ratings.</li>
+ <li><b>State Management:</b> Maintains observable properties for data binding with the View.</li>
+ <li><b>Asynchronous I/O:</b> Delegates file system and database operations to background threads.</li>
+ <li><b>Search Coordination:</b> Aggregates user search queries and metadata filters.</li>
+ <li><b>Caching:</b> Manages transient metadata caches to improve UI responsiveness.</li>
  </ul>
  */
 public class ImageBrowserViewModel implements ViewModel {
@@ -55,7 +51,6 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObjectProperty<File> selectedImage = new SimpleObjectProperty<>();
     private final ObservableList<File> allFolderFiles = FXCollections.observableArrayList();
     private final ObservableList<File> filteredFiles = FXCollections.observableArrayList();
-
 
     // --- Caches ---
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
@@ -80,7 +75,7 @@ public class ImageBrowserViewModel implements ViewModel {
 
     private Task<List<File>> currentSearchTask = null;
 
-    // --- Initialization ---
+    // --- Constructor & Initialization ---
 
     @Inject
     public ImageBrowserViewModel(UserDataManager dataManager,
@@ -171,7 +166,7 @@ public class ImageBrowserViewModel implements ViewModel {
         if (!isAll(lora)) filters.put("Loras", lora);
         if (star != null && !star.isEmpty()) filters.put("Rating", star);
 
-        currentSearchTask = new Task<>() {
+        Task<List<File>> task = new Task<>() {
             @Override
             protected List<File> call() {
                 List<String> paths = imageRepo.findPaths(query, filters, SEARCH_LIMIT);
@@ -182,13 +177,23 @@ public class ImageBrowserViewModel implements ViewModel {
             }
         };
 
-        currentSearchTask.setOnSucceeded(e -> {
-            filteredFiles.setAll(currentSearchTask.getValue());
+        task.setOnSucceeded(e -> {
+            if (currentSearchTask != task) {
+                return;
+            }
+
+            List<File> results = task.getValue();
+            if (results != null) {
+                filteredFiles.setAll(results);
+            }
+
             if (selectedImage.get() != null && !filteredFiles.contains(selectedImage.get())) {
                 updateSelection(Collections.emptyList());
             }
         });
-        executor.submit(currentSearchTask);
+
+        currentSearchTask = task;
+        executor.submit(task);
     }
 
     private void loadFilters() {
@@ -262,7 +267,9 @@ public class ImageBrowserViewModel implements ViewModel {
             metaTask.setOnSucceeded(e -> {
                 Map<String, String> meta = metaTask.getValue();
                 dataManager.cacheMetadata(file, meta);
-                if (Objects.equals(selectedImage.get(), file)) activeMetadata.set(meta);
+                if (Objects.equals(selectedImage.get(), file)) {
+                    activeMetadata.set(meta);
+                }
             });
             executor.submit(metaTask);
         }
@@ -343,7 +350,7 @@ public class ImageBrowserViewModel implements ViewModel {
         return dataManager.getPinnedFolders();
     }
 
-    // --- Helpers & Utility ---
+    // --- Helper Logic & Utility ---
 
     public int getRatingForFile(File file) {
         if (file == null) return 0;

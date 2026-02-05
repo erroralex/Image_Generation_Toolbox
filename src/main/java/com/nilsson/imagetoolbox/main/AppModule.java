@@ -9,7 +9,6 @@ import com.nilsson.imagetoolbox.service.MetadataService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class AppModule extends AbstractModule {
 
@@ -24,24 +23,20 @@ public class AppModule extends AbstractModule {
     }
 
     /**
-     * Provides a global thread pool for background tasks.
-     * Configured with a Daemon ThreadFactory so tasks don't prevent app shutdown.
+     * Provides a global executor service backed by Virtual Threads (Project Loom).
+     * <p>
+     * Instead of a fixed pool of platform threads, this executor creates a new virtual thread
+     * for every task. Virtual threads are lightweight and always daemon threads, ensuring
+     * they do not prevent application shutdown while offering superior throughput for I/O-bound operations.
      */
     @Provides
     @Singleton
     public ExecutorService provideExecutorService() {
-        return Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() + 2,
-                new ThreadFactory() {
-                    private final AtomicInteger count = new AtomicInteger(1);
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        Thread t = new Thread(r);
-                        t.setDaemon(true); // Essential for UI background tasks
-                        t.setName("Global-Worker-" + count.getAndIncrement());
-                        return t;
-                    }
-                }
-        );
+        // Preserves the existing naming convention for observability in logs
+        ThreadFactory factory = Thread.ofVirtual()
+                .name("Global-Worker-", 1)
+                .factory();
+
+        return Executors.newThreadPerTaskExecutor(factory);
     }
 }
