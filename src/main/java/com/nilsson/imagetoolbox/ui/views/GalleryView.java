@@ -6,6 +6,7 @@ import com.nilsson.imagetoolbox.ui.viewmodels.ImageBrowserViewModel;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
+import javafx.beans.value.ChangeListener;
 import javafx.collections.ListChangeListener;
 import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
@@ -15,7 +16,6 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import org.controlsfx.control.GridCell;
 import org.controlsfx.control.GridView;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -88,10 +88,6 @@ public class GalleryView extends StackPane {
             Platform.runLater(() -> gridView.getItems().setAll(viewModel.getFilteredFiles()));
         });
 
-        viewModel.getSelectedImage().addListener((obs, oldVal, newVal) -> {
-            gridView.requestLayout();
-        });
-
         // Event Handling
         this.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyNavigation);
         this.setOnMousePressed(e -> this.requestFocus());
@@ -157,11 +153,19 @@ public class GalleryView extends StackPane {
         private final HBox starRow;
         private final Label modelLabel;
         private final PseudoClass SELECTED_PSEUDO_CLASS = PseudoClass.getPseudoClass("selected");
+        private final ChangeListener<File> selectionListener;
 
         public ImageGridCell() {
             container = new StackPane();
             container.getStyleClass().add("image-card");
             container.setAlignment(Pos.CENTER);
+
+            // Create listener once
+            selectionListener = (obs, oldVal, newVal) -> {
+                File item = getItem();
+                boolean isSelected = item != null && Objects.equals(item, newVal);
+                container.pseudoClassStateChanged(SELECTED_PSEUDO_CLASS, isSelected);
+            };
 
             container.setOnMouseClicked(e -> {
                 GalleryView.this.requestFocus();
@@ -195,6 +199,8 @@ public class GalleryView extends StackPane {
 
         @Override
         protected void updateItem(File file, boolean empty) {
+            viewModel.getSelectedImage().removeListener(selectionListener);
+
             super.updateItem(file, empty);
 
             if (empty || file == null) {
@@ -202,6 +208,8 @@ public class GalleryView extends StackPane {
                 imageView.fitWidthProperty().unbind();
                 imageView.fitHeightProperty().unbind();
             } else {
+                viewModel.getSelectedImage().addListener(selectionListener);
+
                 if (getGridView() != null) {
                     imageView.fitWidthProperty().bind(getGridView().cellWidthProperty().subtract(10));
                     imageView.fitHeightProperty().bind(getGridView().cellHeightProperty().subtract(10));
