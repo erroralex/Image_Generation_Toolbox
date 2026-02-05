@@ -10,6 +10,7 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.*;
 import javafx.stage.Modality;
+import javafx.stage.PopupWindow;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -102,7 +103,7 @@ public class MetadataSidebar extends VBox {
 
         Button openFileBtn = createLargeIconButton("fa-folder-open:16:white", "Open Location", e -> openFileLocation(currentFile));
         Button rawDataBtn = createLargeIconButton("fa-code:16:white", "Raw Metadata", e -> showRawMetadata());
-        Button closeBtn = createLargeIconButton("fa-close:16:white", "Close Panel", e -> actionHandler.onClose());
+        Button closeBtn = createLargeIconButton("fa-arrow-right:16:white", "Close Panel", e -> actionHandler.onClose());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -375,20 +376,33 @@ public class MetadataSidebar extends VBox {
         lorasFlow.getChildren().add(tag);
     }
 
-    private Button createLargeIconButton(String icon, String tooltip, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
+    private Button createLargeIconButton(String icon, String tooltipText, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
         Button btn = new Button();
         btn.setGraphic(new FontIcon(icon));
         btn.getStyleClass().add("icon-button-large");
-        if (tooltip != null) btn.setTooltip(new Tooltip(tooltip));
+        if (tooltipText != null) {
+            Tooltip tooltip = new Tooltip(tooltipText);
+            tooltip.setAnchorLocation(PopupWindow.AnchorLocation.CONTENT_BOTTOM_LEFT);
+
+            btn.setOnMouseEntered(e -> {
+                tooltip.show(btn, e.getScreenX(), e.getScreenY() - 15);
+            });
+            btn.setOnMouseExited(e -> tooltip.hide());
+        }
         btn.setOnAction(action);
         return btn;
     }
 
-    private Button createIconButton(String icon, String tooltip, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
+    private Button createIconButton(String icon, String tooltipText, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
         Button btn = new Button();
         btn.setGraphic(new FontIcon(icon));
         btn.getStyleClass().add("icon-button");
-        if (tooltip != null) btn.setTooltip(new Tooltip(tooltip));
+        if (tooltipText != null) {
+            Tooltip tooltip = new Tooltip(tooltipText);
+            tooltip.setAnchorLocation(PopupWindow.AnchorLocation.CONTENT_BOTTOM_LEFT);
+            btn.setOnMouseEntered(e -> tooltip.show(btn, e.getScreenX(), e.getScreenY() - 15));
+            btn.setOnMouseExited(e -> tooltip.hide());
+        }
         btn.setOnAction(action);
         return btn;
     }
@@ -401,10 +415,17 @@ public class MetadataSidebar extends VBox {
         lbl.getStyleClass().add("section-label");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
+
         Button copyBtn = new Button();
-        copyBtn.setGraphic(new FontIcon("fa-copy:12:#aaaaaa"));
+        copyBtn.setGraphic(new FontIcon("fa-copy:14:#aaaaaa")); // Size 14
         copyBtn.getStyleClass().add("icon-button-small");
-        copyBtn.setTooltip(new Tooltip("Copy Text"));
+
+        // Manual tooltip "Above" logic
+        Tooltip tooltip = new Tooltip("Copy Text");
+        tooltip.setAnchorLocation(PopupWindow.AnchorLocation.CONTENT_BOTTOM_LEFT);
+        copyBtn.setOnMouseEntered(e -> tooltip.show(copyBtn, e.getScreenX(), e.getScreenY() - 15));
+        copyBtn.setOnMouseExited(e -> tooltip.hide());
+
         TextArea area = new TextArea();
         area.getStyleClass().add("prompt-block");
         area.setWrapText(true);

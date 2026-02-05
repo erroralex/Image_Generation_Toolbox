@@ -140,6 +140,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         refreshNav();
 
         viewModel.getFilteredFiles().addListener((ListChangeListener<File>) c -> {
+            File previousFile = (currentIndex >= 0 && currentIndex < currentFiles.size()) ? currentFiles.get(currentIndex) : null;
             this.currentFiles = new ArrayList<>(viewModel.getFilteredFiles());
             filmstripView.setFiles(currentFiles);
 
@@ -149,8 +150,12 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
                 if (currentFiles.isEmpty()) {
                     singleImageView.setImage(null);
                     viewModel.updateSelection(Collections.emptyList());
-                } else if (!currentFiles.contains(getCurrentFile())) {
-                    loadImage(0);
+                } else {
+                    if (previousFile != null && currentFiles.contains(previousFile)) {
+                        currentIndex = currentFiles.indexOf(previousFile);
+                    } else {
+                        loadImage(0);
+                    }
                 }
             }
         });
