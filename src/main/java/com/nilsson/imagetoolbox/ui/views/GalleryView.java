@@ -231,8 +231,13 @@ public class GalleryView extends StackPane {
                 int rating = viewModel.getRatingForFile(file);
                 if (rating > 0) {
                     for (int i = 1; i <= 5; i++) {
-                        FontIcon star = new FontIcon(i <= rating ? "fa-star" : "fa-star-o");
-                        star.setIconColor(Color.web("#FFD700"));
+                        boolean filled = i <= rating;
+                        FontIcon star = new FontIcon(filled ? "fa-star" : "fa-star-o");
+                        if (filled) {
+                            star.setStyle("-fx-fill: #FFD700 !important; -fx-icon-color: #FFD700 !important;");
+                        } else {
+                            star.setStyle(null);
+                        }
                         starRow.getChildren().add(star);
                     }
                 }

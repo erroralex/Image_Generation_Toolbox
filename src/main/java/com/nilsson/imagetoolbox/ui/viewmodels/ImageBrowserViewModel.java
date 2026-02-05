@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  The primary ViewModel for the image browsing interface, responsible for managing the state
  of the UI and coordinating between data repositories and background services.
  </p>
- * <h3>Key Responsibilities:</h3>
+ <h3>Key Responsibilities:</h3>
  <ul>
  <li><b>State Management:</b> Maintains {@link ObservableList} and {@link Property} objects
  for UI data binding, including selected images, filtered results, and metadata.</li>
@@ -56,6 +56,7 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObservableList<File> allFolderFiles = FXCollections.observableArrayList();
     private final ObservableList<File> filteredFiles = FXCollections.observableArrayList();
 
+
     // --- Caches ---
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
     private final Map<File, Integer> ratingCache = new ConcurrentHashMap<>();
@@ -74,6 +75,8 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
     private final ObservableList<String> collectionList = FXCollections.observableArrayList();
+    private final ObservableList<String> stars = FXCollections.observableArrayList("1", "2", "3", "4", "5");
+    private final ObjectProperty<String> selectedStar = new SimpleObjectProperty<>();
 
     private Task<List<File>> currentSearchTask = null;
 
@@ -101,6 +104,7 @@ public class ImageBrowserViewModel implements ViewModel {
         selectedModel.addListener((obs, old, val) -> triggerSearch());
         selectedSampler.addListener((obs, old, val) -> triggerSearch());
         selectedLora.addListener((obs, old, val) -> triggerSearch());
+        selectedStar.addListener((obs, old, val) -> triggerSearch());
     }
 
     // --- Folder Loading & Indexing ---
@@ -154,8 +158,9 @@ public class ImageBrowserViewModel implements ViewModel {
         String model = selectedModel.get();
         String sampler = selectedSampler.get();
         String lora = selectedLora.get();
+        String star = selectedStar.get();
 
-        if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora)) {
+        if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora) && (star == null || star.isEmpty())) {
             filteredFiles.setAll(allFolderFiles);
             return;
         }
@@ -164,6 +169,7 @@ public class ImageBrowserViewModel implements ViewModel {
         if (!isAll(model)) filters.put("Model", model);
         if (!isAll(sampler)) filters.put("Sampler", sampler);
         if (!isAll(lora)) filters.put("Loras", lora);
+        if (star != null && !star.isEmpty()) filters.put("Rating", star);
 
         currentSearchTask = new Task<>() {
             @Override
@@ -439,5 +445,13 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public int getSelectionCount() {
         return selectedImages.size();
+    }
+
+    public ObservableList<String> getStars() {
+        return stars;
+    }
+
+    public ObjectProperty<String> selectedStarProperty() {
+        return selectedStar;
     }
 }

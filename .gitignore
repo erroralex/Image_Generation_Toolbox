@@ -40,3 +40,8 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+# Ignore SQLite database files
+data/*.db
+data/*.db-shm
+data/*.db-wal

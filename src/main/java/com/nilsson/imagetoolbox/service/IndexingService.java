@@ -10,10 +10,12 @@ import javax.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -75,6 +77,64 @@ public class IndexingService {
             currentTask.cancel(true);
         }
         stopWatching();
+    }
+
+    // --- Reconciliation Logic ---
+
+    /**
+     Synchronizes the DB with the File System.
+     Refactored for "Lazy Reconciliation":
+     1. Immediately scans the last active folder for responsiveness.
+     2. Schedules a low-priority background task to check for "ghost" records globally.
+     */
+    public void reconcileLibrary() {
+        File lastFolder = dataManager.getLastFolder();
+        if (lastFolder != null && lastFolder.exists() && lastFolder.isDirectory()) {
+            logger.info("[Reconcile] Fast-scanning last folder: {}", lastFolder.getName());
+            indexFolder(lastFolder);
+        }
+
+        Task<Void> ghostCleanupTask = new Task<>() {
+            @Override
+            protected Void call() {
+                Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
+                logger.info("[Reconcile] Starting background ghost record cleanup...");
+                long start = System.currentTimeMillis();
+                AtomicInteger removedCount = new AtomicInteger(0);
+
+                imageRepo.forEachFilePath(path -> {
+                    if (isCancelled()) return;
+
+                    File file = new File(path);
+                    if (!file.exists()) {
+                        imageRepo.deleteByPath(path);
+                        removedCount.incrementAndGet();
+                    }
+                });
+
+                if (removedCount.get() > 0) {
+                    logger.info("[Reconcile] Background cleanup finished. Removed {} ghost records in {}ms",
+                            removedCount.get(), (System.currentTimeMillis() - start));
+                } else {
+                    logger.debug("[Reconcile] Background cleanup finished. Library is consistent.");
+                }
+                return null;
+            }
+        };
+
+        executor.submit(ghostCleanupTask);
+    }
+
+    /**
+     Helper to list files in a folder and start indexing them.
+     */
+    public void indexFolder(File folder) {
+        if (folder == null || !folder.isDirectory()) return;
+
+        File[] files = folder.listFiles(this::isImageFile);
+        if (files != null && files.length > 0) {
+            startIndexing(Arrays.asList(files), null);
+        }
     }
 
     // --- Batch Indexing ---
