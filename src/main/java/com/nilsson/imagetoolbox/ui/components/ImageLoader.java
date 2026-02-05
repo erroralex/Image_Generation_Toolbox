@@ -3,6 +3,8 @@ package com.nilsson.imagetoolbox.ui.components;
 import com.twelvemonkeys.imageio.plugins.webp.WebPImageReaderSpi;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.scene.image.Image;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReadParam;
@@ -20,7 +22,7 @@ import java.util.Iterator;
 /**
  A specialized utility class for high-performance image loading in JavaFX, tailored for
  modern digital assets and AI-generated content.
- * <p>The loader implements a dual-strategy approach to ensure maximum compatibility
+ <p>The loader implements a dual-strategy approach to ensure maximum compatibility
  and performance:
  <ul>
  <li><b>Native Strategy:</b> Leverages built-in JavaFX platform loading for standard
@@ -28,7 +30,7 @@ import java.util.Iterator;
  <li><b>Fallback Strategy:</b> Utilizes AWT ImageIO with TwelveMonkeys plugins to handle
  niche formats (specifically WebP) and perform memory-efficient subsampling for thumbnails.</li>
  </ul>
- * <p>Key technical features include:
+ <p>Key technical features include:
  <ul>
  <li>Manual registration of WebP Service Provider Interfaces (SPI).</li>
  <li>Memory-cached input streams to prevent file locking and interrupt exceptions.</li>
@@ -38,6 +40,8 @@ import java.util.Iterator;
  */
 public class ImageLoader {
 
+    private static final Logger logger = LoggerFactory.getLogger(ImageLoader.class);
+
     static {
         ImageIO.scanForPlugins();
         ImageIO.setUseCache(false);
@@ -45,7 +49,7 @@ public class ImageLoader {
         try {
             IIORegistry.getDefaultInstance().registerServiceProvider(new WebPImageReaderSpi());
         } catch (Throwable t) {
-            System.err.println("ImageLoader: Failed to manually register WebP SPI: " + t.getMessage());
+            logger.error("ImageLoader: Failed to manually register WebP SPI", t);
         }
     }
 
@@ -137,12 +141,11 @@ public class ImageLoader {
                         reader.dispose();
                     }
                 } else {
-                    System.err.println("ImageLoader: No compatible reader found for " + file.getName());
+                    logger.warn("ImageLoader: No compatible reader found for {}", file.getName());
                 }
             }
         } catch (Throwable e) {
-            System.err.println("Failed to load fallback: " + file.getName() + " - " + e.toString());
-            e.printStackTrace();
+            logger.error("Failed to load fallback: {}", file.getName(), e);
         }
         return null;
     }

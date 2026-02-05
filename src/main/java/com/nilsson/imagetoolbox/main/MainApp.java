@@ -8,10 +8,13 @@ import com.nilsson.imagetoolbox.ui.factory.ViewFactory;
 import de.saxsys.mvvmfx.guice.MvvmfxGuiceApplication;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
+import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
 import java.util.List;
@@ -39,6 +42,8 @@ import java.util.concurrent.CompletableFuture;
  </ul>
  */
 public class MainApp extends MvvmfxGuiceApplication {
+
+    private static final Logger logger = LoggerFactory.getLogger(MainApp.class);
 
     // ------------------------------------------------------------------------
     // Dependency Injection
@@ -79,9 +84,19 @@ public class MainApp extends MvvmfxGuiceApplication {
         var cssUrl = getClass().getResource("/dark-theme.css");
         if (cssUrl != null) {
             scene.getStylesheets().add(cssUrl.toExternalForm());
+        } else {
+            logger.warn("Theme stylesheet not found at /dark-theme.css");
         }
 
         stage.setTitle("Image Generation Toolbox");
+
+        var iconUrl = getClass().getResource("/icon.png");
+        if (iconUrl != null) {
+            stage.getIcons().add(new Image(iconUrl.toExternalForm()));
+        } else {
+            logger.warn("Application icon not found at /icon.png");
+        }
+
         stage.setScene(scene);
 
         com.nilsson.imagetoolbox.ui.components.ResizeHelper.addResizeListener(stage);
@@ -97,15 +112,13 @@ public class MainApp extends MvvmfxGuiceApplication {
 
         CompletableFuture.runAsync(() -> {
             try {
-                // FIX: Use the injected field
                 if (indexingService != null) {
                     indexingService.reconcileLibrary();
                 } else {
-                    System.err.println("IndexingService was not injected!");
+                    logger.error("IndexingService was not injected!");
                 }
             } catch (Exception e) {
-                System.err.println("Startup reconciliation failed: " + e.getMessage());
-                e.printStackTrace();
+                logger.error("Startup reconciliation failed", e);
             }
         });
     }
