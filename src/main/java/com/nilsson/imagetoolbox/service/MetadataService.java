@@ -183,7 +183,8 @@ public class MetadataService {
                     if (name.contains("height") && val > height) height = val;
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.debug("Failed to read metadata using ImageMetadataReader for {}: {}", file.getName(), e.getMessage());
         }
 
         try (ImageInputStream in = ImageIO.createImageInputStream(file)) {
@@ -198,7 +199,8 @@ public class MetadataService {
                     reader.dispose();
                 }
             }
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            logger.debug("Failed to read dimensions using ImageIO for {}: {}", file.getName(), e.getMessage());
         }
     }
 
@@ -231,6 +233,7 @@ public class MetadataService {
                 }
             }
         } catch (Exception e) {
+            logger.debug("Failed to extract metadata chunks for {}: {}", file.getName(), e.getMessage());
             return null;
         }
 
@@ -318,6 +321,7 @@ public class MetadataService {
                 results.put("Prompt", findLongestText(root));
             }
         } catch (Exception e) {
+            logger.debug("JSON parsing error: {}", e.getMessage());
             results.put("Prompt", "Error parsing JSON: " + e.getMessage());
         }
     }

@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -44,6 +45,7 @@ public class IndexingService {
 
     private static final Logger logger = LoggerFactory.getLogger(IndexingService.class);
     private static final int BATCH_SIZE = 20;
+    private static final long DEBOUNCE_DELAY_MS = 500;
 
     // --- Dependencies ---
     private final ImageRepository imageRepo;
@@ -55,6 +57,9 @@ public class IndexingService {
     private Task<Void> currentTask;
     private WatchService watchService;
     private Thread watchThread;
+    
+    // --- Debouncing State ---
+    private final Map<String, Long> pendingEvents = new ConcurrentHashMap<>();
 
     @Inject
     public IndexingService(ImageRepository imageRepo,
@@ -195,7 +200,7 @@ public class IndexingService {
         try {
             this.watchService = FileSystems.getDefault().newWatchService();
             Path path = directory.toPath();
-            path.register(watchService, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE);
+            path.register(watchService, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY);
 
             watchThread = new Thread(() -> watchLoop(path, listener));
             watchThread.setDaemon(true);
@@ -221,6 +226,7 @@ public class IndexingService {
             }
             watchService = null;
         }
+        pendingEvents.clear();
     }
 
     private void watchLoop(Path monitoredPath, Consumer<FileChangeEvent> listener) {
@@ -233,6 +239,9 @@ public class IndexingService {
                     break;
                 }
 
+                // Process events with debouncing
+                long now = System.currentTimeMillis();
+                
                 for (WatchEvent<?> event : key.pollEvents()) {
                     WatchEvent.Kind<?> kind = event.kind();
 
@@ -243,13 +252,31 @@ public class IndexingService {
 
                     if (!isImageFile(file)) continue;
 
-                    if (kind == StandardWatchEventKinds.ENTRY_CREATE) {
-                        handleFileCreation(file);
-                        if (listener != null) listener.accept(new FileChangeEvent(file, ChangeType.CREATED));
-                    } else if (kind == StandardWatchEventKinds.ENTRY_DELETE) {
-                        handleFileDeletion(file);
-                        if (listener != null) listener.accept(new FileChangeEvent(file, ChangeType.DELETED));
+                    String eventKey = file.getAbsolutePath() + "_" + kind.name();
+                    
+                    // Debounce logic: only process if enough time has passed since last event for this file
+                    if (pendingEvents.containsKey(eventKey)) {
+                        long lastTime = pendingEvents.get(eventKey);
+                        if (now - lastTime < DEBOUNCE_DELAY_MS) {
+                            continue; // Skip this event, too soon
+                        }
                     }
+                    
+                    pendingEvents.put(eventKey, now);
+                    
+                    // Schedule processing after delay to ensure file operations are complete
+                    executor.submit(() -> {
+                        try {
+                            Thread.sleep(DEBOUNCE_DELAY_MS);
+                            // Re-check if this is still the latest event
+                            if (pendingEvents.getOrDefault(eventKey, 0L) == now) {
+                                pendingEvents.remove(eventKey);
+                                processFileSystemEvent(kind, file, listener);
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    });
                 }
 
                 boolean valid = key.reset();
@@ -257,6 +284,19 @@ public class IndexingService {
             }
         } catch (Exception e) {
             logger.debug("WatchService loop ended: {}", e.getMessage());
+        }
+    }
+    
+    private void processFileSystemEvent(WatchEvent.Kind<?> kind, File file, Consumer<FileChangeEvent> listener) {
+        if (kind == StandardWatchEventKinds.ENTRY_CREATE || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
+            // For modify/create, ensure file is readable and not locked
+            if (file.exists() && file.canRead() && file.length() > 0) {
+                handleFileCreation(file);
+                if (listener != null) listener.accept(new FileChangeEvent(file, ChangeType.CREATED));
+            }
+        } else if (kind == StandardWatchEventKinds.ENTRY_DELETE) {
+            handleFileDeletion(file);
+            if (listener != null) listener.accept(new FileChangeEvent(file, ChangeType.DELETED));
         }
     }
 
@@ -267,7 +307,7 @@ public class IndexingService {
             Map<String, String> meta = metaService.getExtractedData(file);
             saveToDatabase(file, meta);
             dataManager.cacheMetadata(file, meta);
-            logger.debug("Indexed new file: {}", file.getName());
+            logger.debug("Indexed new/modified file: {}", file.getName());
         } catch (Exception e) {
             logger.error("Error processing new file: {}", file.getName(), e);
         }

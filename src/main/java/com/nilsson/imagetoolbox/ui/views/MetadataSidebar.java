@@ -1,7 +1,14 @@
 package com.nilsson.imagetoolbox.ui.views;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nilsson.imagetoolbox.ui.viewmodels.MetadataSidebarViewModel;
+import de.saxsys.mvvmfx.InjectViewModel;
+import de.saxsys.mvvmfx.JavaView;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
+import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -14,9 +21,13 @@ import javafx.stage.PopupWindow;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.kordamp.ikonli.javafx.FontIcon;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.net.URL;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,7 +49,12 @@ import java.util.regex.Pattern;
  </ul>
  </p>
  */
-public class MetadataSidebar extends VBox {
+public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarViewModel>, Initializable {
+
+    private static final Logger logger = LoggerFactory.getLogger(MetadataSidebar.class);
+
+    @InjectViewModel
+    private MetadataSidebarViewModel viewModel;
 
     // ------------------------------------------------------------------------
     // Action Handler Interface
@@ -50,13 +66,9 @@ public class MetadataSidebar extends VBox {
      */
     public interface SidebarActionHandler {
         void onToggleDock();
-
         void onClose();
-
         void onSetRating(int rating);
-
         void onCreateCollection(String name);
-
         void onAddToCollection(String collectionName);
     }
 
@@ -64,14 +76,14 @@ public class MetadataSidebar extends VBox {
     // Fields & UI Controls
     // ------------------------------------------------------------------------
 
-    private final SidebarActionHandler actionHandler;
-    private final TextField inspectorFilename;
-    private final HBox starRatingBox;
-    private final TextArea promptArea;
-    private final TextArea negativePromptArea;
-    private final TextField softwareField, modelField, seedField, samplerField, schedulerField, cfgField, stepsField, resField;
-    private final FlowPane lorasFlow;
-    private final ComboBox<String> collectionCombo;
+    private final ObjectProperty<SidebarActionHandler> actionHandler = new SimpleObjectProperty<>();
+    private TextField inspectorFilename;
+    private HBox starRatingBox;
+    private TextArea promptArea;
+    private TextArea negativePromptArea;
+    private TextField softwareField, modelField, seedField, samplerField, schedulerField, cfgField, stepsField, resField;
+    private FlowPane lorasFlow;
+    private ComboBox<String> collectionCombo;
     private File currentFile;
     private String currentRawMetadata;
 
@@ -79,14 +91,15 @@ public class MetadataSidebar extends VBox {
     // Constructor & UI Initialization
     // ------------------------------------------------------------------------
 
-    public MetadataSidebar(SidebarActionHandler actionHandler) {
-        this.actionHandler = actionHandler;
-
+    public MetadataSidebar() {
         this.getStyleClass().add("inspector-drawer");
         this.setPrefWidth(380);
         this.setMinWidth(380);
         this.setMaxWidth(380);
+    }
 
+    @Override
+    public void initialize(URL url, ResourceBundle resourceBundle) {
         // Header
         VBox headerContainer = new VBox(10);
         headerContainer.getStyleClass().add("inspector-header");
@@ -103,7 +116,9 @@ public class MetadataSidebar extends VBox {
 
         Button openFileBtn = createLargeIconButton("fa-folder-open:16:white", "Open Location", e -> openFileLocation(currentFile));
         Button rawDataBtn = createLargeIconButton("fa-code:16:white", "Raw Metadata", e -> showRawMetadata());
-        Button closeBtn = createLargeIconButton("fa-arrow-right:16:white", "Close Panel", e -> actionHandler.onClose());
+        Button closeBtn = createLargeIconButton("fa-arrow-right:16:white", "Close Panel", e -> {
+            if (actionHandler.get() != null) actionHandler.get().onClose();
+        });
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -130,7 +145,10 @@ public class MetadataSidebar extends VBox {
             icon.setIconSize(20);
             star.setGraphic(icon);
             final int r = i;
-            star.setOnAction(e -> actionHandler.onSetRating(r));
+            star.setOnAction(e -> {
+                viewModel.setRating(r);
+                if (actionHandler.get() != null) actionHandler.get().onSetRating(r);
+            });
             starRatingBox.getChildren().add(star);
         }
 
@@ -177,12 +195,18 @@ public class MetadataSidebar extends VBox {
             TextInputDialog dialog = new TextInputDialog();
             dialog.setTitle("New Collection");
             dialog.setHeaderText("Enter collection name:");
-            dialog.showAndWait().ifPresent(actionHandler::onCreateCollection);
+            dialog.showAndWait().ifPresent(name -> {
+                viewModel.createCollection(name);
+                if (actionHandler.get() != null) actionHandler.get().onCreateCollection(name);
+            });
         });
 
         Button addColBtn = createIconButton("fa-check:14:white", "Add to Collection", e -> {
             String col = collectionCombo.getValue();
-            if (col != null) actionHandler.onAddToCollection(col);
+            if (col != null) {
+                viewModel.addToCollection(col);
+                if (actionHandler.get() != null) actionHandler.get().onAddToCollection(col);
+            }
         });
         collectionBox.getChildren().addAll(collectionCombo, newColBtn, addColBtn);
 
@@ -192,11 +216,21 @@ public class MetadataSidebar extends VBox {
 
         this.getChildren().addAll(headerContainer, scrollContent);
         VBox.setVgrow(scrollContent, Priority.ALWAYS);
+
+        // Bindings
+        viewModel.activeMetadataProperty().addListener((obs, old, meta) -> updateData(viewModel.currentFileProperty().get(), meta));
+        viewModel.activeRatingProperty().addListener((obs, old, rating) -> setRating(rating.intValue()));
+        viewModel.getCollections().addListener((ListChangeListener<String>) c -> setCollections(viewModel.getCollections()));
+        setCollections(viewModel.getCollections());
     }
 
     // ------------------------------------------------------------------------
     // Public API & Data Binding
     // ------------------------------------------------------------------------
+
+    public void setActionHandler(SidebarActionHandler handler) {
+        this.actionHandler.set(handler);
+    }
 
     public void setCollections(ObservableList<String> collections) {
         collectionCombo.setItems(collections);
@@ -215,40 +249,42 @@ public class MetadataSidebar extends VBox {
         }
 
         inspectorFilename.setText(file.getName());
-        promptArea.setText(meta.getOrDefault("Prompt", ""));
+        if (meta != null) {
+            promptArea.setText(meta.getOrDefault("Prompt", ""));
 
-        String neg = meta.get("Negative");
-        if (neg == null) neg = meta.get("Negative Prompt");
-        negativePromptArea.setText(neg != null ? neg : "");
+            String neg = meta.get("Negative");
+            if (neg == null) neg = meta.get("Negative Prompt");
+            negativePromptArea.setText(neg != null ? neg : "");
 
-        seedField.setText(meta.getOrDefault("Seed", "-"));
-        samplerField.setText(meta.getOrDefault("Sampler", "-"));
-        schedulerField.setText(meta.getOrDefault("Scheduler", "-"));
-        cfgField.setText(meta.getOrDefault("CFG", "-"));
-        stepsField.setText(meta.getOrDefault("Steps", "-"));
-        modelField.setText(meta.getOrDefault("Model", "-"));
+            seedField.setText(meta.getOrDefault("Seed", "-"));
+            samplerField.setText(meta.getOrDefault("Sampler", "-"));
+            schedulerField.setText(meta.getOrDefault("Scheduler", "-"));
+            cfgField.setText(meta.getOrDefault("CFG", "-"));
+            stepsField.setText(meta.getOrDefault("Steps", "-"));
+            modelField.setText(meta.getOrDefault("Model", "-"));
 
-        if (meta.containsKey("Width") && meta.containsKey("Height")) {
-            resField.setText(meta.get("Width") + "x" + meta.get("Height"));
-        } else {
-            resField.setText(meta.getOrDefault("Resolution", "-"));
-        }
+            if (meta.containsKey("Width") && meta.containsKey("Height")) {
+                resField.setText(meta.get("Width") + "x" + meta.get("Height"));
+            } else {
+                resField.setText(meta.getOrDefault("Resolution", "-"));
+            }
 
-        String soft = meta.get("Software");
-        if (soft == null) soft = meta.get("Generator");
-        if (soft == null) soft = meta.getOrDefault("Tool", "Unknown");
-        softwareField.setText(soft);
+            String soft = meta.get("Software");
+            if (soft == null) soft = meta.get("Generator");
+            if (soft == null) soft = meta.getOrDefault("Tool", "Unknown");
+            softwareField.setText(soft);
 
-        lorasFlow.getChildren().clear();
-        String loraRaw = meta.get("Loras");
-        if (loraRaw == null) loraRaw = meta.get("LoRAs");
-        if (loraRaw == null) loraRaw = meta.get("Resources");
+            lorasFlow.getChildren().clear();
+            String loraRaw = meta.get("Loras");
+            if (loraRaw == null) loraRaw = meta.get("LoRAs");
+            if (loraRaw == null) loraRaw = meta.get("Resources");
 
-        if (loraRaw != null && !loraRaw.isEmpty()) {
-            for (String lora : loraRaw.split(",")) addLoraChip(lora.trim());
-        } else {
-            Matcher m = Pattern.compile("<lora:([^:]+):").matcher(promptArea.getText());
-            while (m.find()) addLoraChip(m.group(1));
+            if (loraRaw != null && !loraRaw.isEmpty()) {
+                for (String lora : loraRaw.split(",")) addLoraChip(lora.trim());
+            } else {
+                Matcher m = Pattern.compile("<lora:([^:]+):").matcher(promptArea.getText());
+                while (m.find()) addLoraChip(m.group(1));
+            }
         }
     }
 
@@ -447,7 +483,7 @@ public class MetadataSidebar extends VBox {
             try {
                 if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop().open(file.getParentFile());
             } catch (Exception e) {
-                e.printStackTrace();
+                logger.error("Failed to open file location", e);
             }
         }).start();
     }

@@ -1,6 +1,10 @@
 package com.nilsson.imagetoolbox.ui.views;
 
+import com.nilsson.imagetoolbox.ui.viewmodels.MetadataSidebarViewModel;
 import javafx.application.Platform;
+import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.FXCollections;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import org.junit.jupiter.api.BeforeAll;
@@ -18,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.lenient;
 
 /**
  <h2>MetadataSidebarTest</h2>
@@ -41,6 +46,9 @@ class MetadataSidebarTest {
     @Mock
     private MetadataSidebar.SidebarActionHandler mockHandler;
 
+    @Mock
+    private MetadataSidebarViewModel mockViewModel;
+
     private MetadataSidebar sidebar;
 
     // --- Lifecycle Management ---
@@ -62,9 +70,28 @@ class MetadataSidebarTest {
      Instantiates the MetadataSidebar on the JavaFX thread before each test.
      */
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        // Mock ViewModel properties to avoid NPEs during binding
+        // Use lenient() because not all tests trigger all listeners/properties, avoiding UnnecessaryStubbingException
+        lenient().when(mockViewModel.activeMetadataProperty()).thenReturn(new SimpleObjectProperty<>());
+        lenient().when(mockViewModel.activeRatingProperty()).thenReturn(new SimpleIntegerProperty());
+        lenient().when(mockViewModel.currentFileProperty()).thenReturn(new SimpleObjectProperty<>());
+        lenient().when(mockViewModel.getCollections()).thenReturn(FXCollections.observableArrayList());
+
         Platform.runLater(() -> {
-            sidebar = new MetadataSidebar(mockHandler);
+            sidebar = new MetadataSidebar();
+            // Inject mock ViewModel via reflection since we can't use Guice here easily
+            try {
+                Field vmField = MetadataSidebar.class.getDeclaredField("viewModel");
+                vmField.setAccessible(true);
+                vmField.set(sidebar, mockViewModel);
+                
+                // Manually trigger initialize since we're not using FluentViewLoader
+                sidebar.initialize(null, null);
+                sidebar.setActionHandler(mockHandler);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         });
         waitForFxEvents();
     }
