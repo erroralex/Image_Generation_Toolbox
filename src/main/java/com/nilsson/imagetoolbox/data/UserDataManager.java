@@ -10,9 +10,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.security.MessageDigest;
 import java.util.*;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  <h2>UserDataManager</h2>
@@ -25,8 +22,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  <ul>
  <li><b>Path Normalization:</b> Manages the conversion between absolute system paths used by
  the UI and relative paths stored in the database to ensure library portability.</li>
- <li><b>Concurrency Control:</b> Implements a {@link ReentrantReadWriteLock} to ensure
- thread-safe access to the database repositories across background indexing and UI threads.</li>
+ <li><b>Concurrency Control:</b> Relies on the underlying {@link DatabaseService} (HikariCP + SQLite WAL)
+ to handle concurrent access safely, avoiding application-level locking bottlenecks.</li>
  <li><b>File Identity & Integrity:</b> Handles SHA-256 hashing for file tracking and
  delegates metadata extraction/caching.</li>
  <li><b>Domain Delegation:</b> Orchestrates operations across {@link ImageRepository},
@@ -43,10 +40,7 @@ public class UserDataManager {
     private final CollectionRepository collectionRepo;
     private final ImageRepository imageRepo;
 
-    // --- Concurrency & Environment ---
-    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
-    private final Lock readLock = rwLock.readLock();
-    private final Lock writeLock = rwLock.writeLock();
+    // --- Environment ---
     private final File libraryRoot;
 
     @Inject
@@ -99,12 +93,7 @@ public class UserDataManager {
     // --- Search & Attributes ---
 
     public List<String> getDistinctMetadataValues(String key) {
-        readLock.lock();
-        try {
-            return imageRepo.getDistinctValues(key);
-        } finally {
-            readLock.unlock();
-        }
+        return imageRepo.getDistinctValues(key);
     }
 
     public Task<List<File>> findFilesWithFilters(String query, Map<String, String> filters, int limit) {
@@ -112,19 +101,14 @@ public class UserDataManager {
             @Override
             protected List<File> call() {
                 long start = System.currentTimeMillis();
-                readLock.lock();
-                try {
-                    List<String> paths = imageRepo.findPaths(query, filters, limit);
-                    List<File> files = new ArrayList<>();
-                    for (String path : paths) {
-                        File f = resolvePath(path);
-                        if (f != null) files.add(f);
-                    }
-                    logger.debug("Search found {} files in {}ms", files.size(), System.currentTimeMillis() - start);
-                    return files;
-                } finally {
-                    readLock.unlock();
+                List<String> paths = imageRepo.findPaths(query, filters, limit);
+                List<File> files = new ArrayList<>();
+                for (String path : paths) {
+                    File f = resolvePath(path);
+                    if (f != null) files.add(f);
                 }
+                logger.debug("Search found {} files in {}ms", files.size(), System.currentTimeMillis() - start);
+                return files;
             }
         };
     }
@@ -145,12 +129,7 @@ public class UserDataManager {
         }
 
         if (success) {
-            writeLock.lock();
-            try {
-                imageRepo.deleteByPath(relativizePath(file));
-            } finally {
-                writeLock.unlock();
-            }
+            imageRepo.deleteByPath(relativizePath(file));
         }
         return success;
     }
@@ -205,51 +184,26 @@ public class UserDataManager {
 
     public void cacheMetadata(File file, Map<String, String> meta) {
         if (file == null || meta == null || meta.isEmpty()) return;
-        writeLock.lock();
-        try {
-            int id = getOrCreateImageIdInternal(file);
-            if (id > 0) imageRepo.saveMetadata(id, meta);
-        } finally {
-            writeLock.unlock();
-        }
+        int id = getOrCreateImageIdInternal(file);
+        if (id > 0) imageRepo.saveMetadata(id, meta);
     }
 
     public Map<String, String> getCachedMetadata(File file) {
-        readLock.lock();
-        try {
-            return imageRepo.getMetadata(relativizePath(file));
-        } finally {
-            readLock.unlock();
-        }
+        return imageRepo.getMetadata(relativizePath(file));
     }
 
     public boolean hasCachedMetadata(File file) {
-        readLock.lock();
-        try {
-            return imageRepo.hasMetadata(relativizePath(file));
-        } finally {
-            readLock.unlock();
-        }
+        return imageRepo.hasMetadata(relativizePath(file));
     }
 
     public void addTag(File file, String tag) {
         if (file == null || tag == null || tag.isBlank()) return;
-        writeLock.lock();
-        try {
-            int id = getOrCreateImageIdInternal(file);
-            if (id > 0) imageRepo.addTag(id, tag.trim());
-        } finally {
-            writeLock.unlock();
-        }
+        int id = getOrCreateImageIdInternal(file);
+        if (id > 0) imageRepo.addTag(id, tag.trim());
     }
 
     public Set<String> getTags(File file) {
-        readLock.lock();
-        try {
-            return imageRepo.getTags(relativizePath(file));
-        } finally {
-            readLock.unlock();
-        }
+        return imageRepo.getTags(relativizePath(file));
     }
 
     // --- Ratings & Folders ---
@@ -260,58 +214,33 @@ public class UserDataManager {
 
     public void setRating(File file, int rating) {
         if (file == null) return;
-        writeLock.lock();
-        try {
-            int id = getOrCreateImageIdInternal(file);
-            if (id > 0) imageRepo.setRating(id, rating);
-        } finally {
-            writeLock.unlock();
-        }
+        int id = getOrCreateImageIdInternal(file);
+        if (id > 0) imageRepo.setRating(id, rating);
     }
 
     public List<File> getStarredFilesList() {
-        readLock.lock();
-        try {
-            List<String> paths = imageRepo.getStarredPaths();
-            List<File> files = new ArrayList<>();
-            for (String p : paths) {
-                File f = resolvePath(p);
-                if (f != null && f.exists()) files.add(f);
-            }
-            return files;
-        } finally {
-            readLock.unlock();
+        List<String> paths = imageRepo.getStarredPaths();
+        List<File> files = new ArrayList<>();
+        for (String p : paths) {
+            File f = resolvePath(p);
+            if (f != null && f.exists()) files.add(f);
         }
+        return files;
     }
 
     public List<File> getPinnedFolders() {
-        readLock.lock();
-        try {
-            return imageRepo.getPinnedFolders(this::resolvePath);
-        } finally {
-            readLock.unlock();
-        }
+        return imageRepo.getPinnedFolders(this::resolvePath);
     }
 
     public void addPinnedFolder(File folder) {
         if (folder != null && folder.isDirectory()) {
-            writeLock.lock();
-            try {
-                imageRepo.addPinnedFolder(relativizePath(folder));
-            } finally {
-                writeLock.unlock();
-            }
+            imageRepo.addPinnedFolder(relativizePath(folder));
         }
     }
 
     public void removePinnedFolder(File folder) {
         if (folder != null) {
-            writeLock.lock();
-            try {
-                imageRepo.removePinnedFolder(relativizePath(folder));
-            } finally {
-                writeLock.unlock();
-            }
+            imageRepo.removePinnedFolder(relativizePath(folder));
         }
     }
 
@@ -331,30 +260,20 @@ public class UserDataManager {
 
     public void addImageToCollection(String collectionName, File file) {
         if (collectionName == null || file == null) return;
-        writeLock.lock();
-        try {
-            int id = getOrCreateImageIdInternal(file);
-            if (id > 0) {
-                collectionRepo.addImage(collectionName, id);
-            }
-        } finally {
-            writeLock.unlock();
+        int id = getOrCreateImageIdInternal(file);
+        if (id > 0) {
+            collectionRepo.addImage(collectionName, id);
         }
     }
 
     public List<File> getFilesFromCollection(String collectionName) {
-        readLock.lock();
-        try {
-            List<String> paths = collectionRepo.getFilePaths(collectionName);
-            List<File> files = new ArrayList<>();
-            for (String p : paths) {
-                File f = resolvePath(p);
-                if (f != null && f.exists()) files.add(f);
-            }
-            return files;
-        } finally {
-            readLock.unlock();
+        List<String> paths = collectionRepo.getFilePaths(collectionName);
+        List<File> files = new ArrayList<>();
+        for (String p : paths) {
+            File f = resolvePath(p);
+            if (f != null && f.exists()) files.add(f);
         }
+        return files;
     }
 
     // --- Settings ---

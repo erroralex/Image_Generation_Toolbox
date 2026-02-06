@@ -15,6 +15,8 @@ import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  A robust 2-tier Least Recently Used (LRU) cache system designed for JavaFX image thumbnails.
@@ -35,6 +37,8 @@ import java.util.Map;
  filesystem compatibility and prevent collisions with special characters.</li>
  <li>Disk writes utilize {@link ImageIO} and convert images to {@code TYPE_INT_RGB} for
  optimal JPEG compression and performance.</li>
+ <li><b>Optimization:</b> Disk writes are offloaded to a low-priority background thread to prevent
+ disk thrashing and UI stutter during rapid scrolling.</li>
  </ul>
  */
 public class ThumbnailCache {
@@ -46,6 +50,14 @@ public class ThumbnailCache {
     private static final Logger logger = LoggerFactory.getLogger(ThumbnailCache.class);
     private static final int MAX_MEM_ENTRIES = 250;
     private static final File CACHE_DIR = new File(System.getProperty("user.dir"), ".cache/thumbnails");
+
+    // Executor for low-priority disk writes
+    private static final ExecutorService diskWriter = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "Thumbnail-Disk-Writer");
+        t.setPriority(Thread.MIN_PRIORITY);
+        t.setDaemon(true);
+        return t;
+    });
 
     private static final Map<String, SoftReference<Image>> memCache = Collections.synchronizedMap(
             new LinkedHashMap<>(MAX_MEM_ENTRIES + 1, 0.75F, true) {
@@ -115,7 +127,8 @@ public class ThumbnailCache {
 
         File diskCacheFile = getCacheFile(path);
         if (!diskCacheFile.exists()) {
-            saveToDisk(img, diskCacheFile);
+            // Offload disk write to background thread
+            diskWriter.submit(() -> saveToDisk(img, diskCacheFile));
         }
     }
 

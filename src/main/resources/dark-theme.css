@@ -21,6 +21,10 @@
     -app-purple: #c45dec;
     -app-red-warning: #ff4d4d;
 
+    /* Standard JavaFX Blue for consistency with default controls */
+    -app-blue: #0096C9;
+    -app-blue-hover: rgba(0, 150, 201, 0.15);
+
     /* -------- Gradients -------- */
     -app-grad-primary: linear-gradient(to right, #00d4ff 0%, #7a2aff 100%);
     -app-grad-hover: linear-gradient(to right, #66fcf1 0%, #d870ff 100%);
@@ -50,15 +54,15 @@
  */
 
 .search-pill {
-    -fx-background-color: rgba(255, 255, 255, 0.07);
+    -fx-background-color: -app-bg-panel;
     -fx-background-radius: 50px;
     -fx-border-color: rgba(255, 255, 255, 0.1);
     -fx-border-radius: 50px;
     -fx-border-width: 1px;
     -fx-text-fill: white;
-    -fx-font-size: 13px; /* Slightly smaller text for slimmer bar */
-    -fx-padding: 4 15 4 15; /* Slimmer padding: Top/Bottom 4px, Left/Right 15px */
-    -fx-alignment: center-left; /* Center-left alignment for text input */
+    -fx-font-size: 13px;
+    -fx-padding: 4 15 4 15;
+    -fx-alignment: center-left;
 }
 
 .search-pill:focused {
@@ -196,20 +200,19 @@
     -fx-prompt-text-fill: derive(#808080, 20%);
 }
 
-/* UPDATED: Darker background as requested (#0e1015) */
 .prompt-block {
-    -fx-background-color: #0e1015;
+    -fx-background-color: -app-bg-surface;
     -fx-background-radius: 6;
     -fx-border-color: #333;
     -fx-border-radius: 6;
     -fx-text-fill: #d4d4d4;
     -fx-font-size: 12px;
     -fx-padding: 5;
-    -fx-control-inner-background: #0e1015;
+    -fx-control-inner-background: -app-bg-surface;
 }
 
 .prompt-block .content {
-    -fx-background-color: #0e1015;
+    -fx-background-color: -app-bg-surface;
 }
 
 /* ===================================================================================
@@ -272,7 +275,7 @@
  */
 
 .button, .icon-button {
-    -fx-background-color: #1c2230;
+    -fx-background-color: -app-bg-panel;
     -fx-border-color: rgba(255, 255, 255, 0.06);
     -fx-background-radius: 6px;
     -fx-text-fill: -text-primary;
@@ -346,7 +349,7 @@
 }
 
 .sidebar-btn:hover {
-    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-background-color: -app-blue-hover;
     -fx-text-fill: -text-primary;
 }
 
@@ -383,14 +386,14 @@
 }
 
 .tree-cell:filled:hover {
-    -fx-background-color: rgba(102, 252, 241, 0.08);
+    -fx-background-color: -app-blue-hover;
     -fx-text-fill: white;
 }
 
 /* Selected tree item style */
 .tree-cell:filled:selected,
 .tree-cell:filled:selected:focused {
-    -fx-background-color: -app-bg-card; /* Darker card background instead of full gradient for better readability */
+    -fx-background-color: -app-bg-card;
     -fx-text-fill: white;
     -fx-border-color: -app-grad-primary;
     -fx-border-width: 0 0 0 2; /* Left border indicator */
@@ -415,8 +418,8 @@
 }
 
 .grid-cell:hover {
-    -fx-border-color: -app-cyan;
-    -fx-effect: dropshadow(three-pass-box, -app-cyan, 5, 0.3, 0, 0);
+    -fx-border-color: -app-blue;
+    -fx-effect: dropshadow(three-pass-box, -app-blue, 5, 0.3, 0, 0);
 }
 
 .image-card {
@@ -431,11 +434,12 @@
 }
 
 .image-card:hover {
-    -fx-background-color: #383838;
+    -fx-background-color: -app-blue-hover;
     -fx-scale-x: 1.05;
     -fx-scale-y: 1.05;
-    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.5), 10, 0, 0, 4);
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.6), 12, 0, 0, 4);
     -fx-view-order: -1;
+    -fx-border-color: -app-blue;
 }
 
 .image-card:selected {
@@ -574,7 +578,7 @@
 }
 
 .filter-chip.active {
-    -fx-background-color: -app-accent;
+    -fx-background-color: -app-cyan;
 }
 
 .scroll-bar .thumb {
@@ -606,7 +610,7 @@
  */
 
 .pill-search-field {
-    -fx-background-color: #12141a; /* Darker panel background */
+    -fx-background-color: -app-bg-panel;
     -fx-background-radius: 50px;
     -fx-border-color: -app-grad-primary; /* Gradient border */
     -fx-border-radius: 50px;

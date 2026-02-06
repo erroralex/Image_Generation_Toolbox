@@ -18,7 +18,6 @@ import java.util.stream.Collectors;
  A sidebar navigation component that provides a unified interface for physical and virtual file access.
  * <p>This component manages a hierarchical {@link TreeView} divided into four logical sections:
  <ul>
- <li><b>Starred:</b> Quick access to user-flagged favorite items.</li>
  <li><b>Collections:</b> Virtual groupings of files that exist independently of the filesystem.</li>
  <li><b>Pinned:</b> User-defined shortcuts to frequently accessed local directories.</li>
  <li><b>This PC:</b> A lazy-loading representation of the local physical drives.</li>
@@ -60,7 +59,6 @@ public class FolderNav extends VBox {
     }
 
     // --- Static Constants ---
-    private static final File STARRED_SECTION = new File("::STARRED::");
     private static final File PINNED_SECTION = new File("::PINNED::");
     private static final File COLLECTIONS_SECTION = new File("::COLLECTIONS::");
     private static final File DRIVES_SECTION = new File("::DRIVES::");
@@ -100,9 +98,7 @@ public class FolderNav extends VBox {
         treeView.getSelectionModel().selectedItemProperty().addListener((obs, old, newVal) -> {
             if (newVal != null && newVal.getValue() != null) {
                 File f = newVal.getValue();
-                if (f.equals(STARRED_SECTION)) {
-                    listener.onShowStarred();
-                } else if (f.getPath().startsWith("::COL::")) {
+                if (f.getPath().startsWith("::COL::")) {
                     String colName = f.getName();
                     listener.onCollectionSelected(colName);
                 } else if (!f.equals(PINNED_SECTION) && !f.equals(DRIVES_SECTION) && !f.equals(COLLECTIONS_SECTION) && f.isDirectory()) {
@@ -164,8 +160,6 @@ public class FolderNav extends VBox {
 
     private void refreshTree() {
         TreeItem<File> invisibleRoot = new TreeItem<>(new File("root"));
-
-        invisibleRoot.getChildren().add(new TreeItem<>(STARRED_SECTION));
 
         TreeItem<File> collectionRoot = new TreeItem<>(COLLECTIONS_SECTION);
         collectionRoot.setExpanded(true);
@@ -300,13 +294,6 @@ public class FolderNav extends VBox {
             if (empty || item == null) {
                 setText(null);
                 setGraphic(null);
-                return;
-            }
-
-            if (item.equals(STARRED_SECTION)) {
-                setText("Starred");
-                setGraphic(createIcon(FontAwesome.STAR, "#FFD700"));
-                getStyleClass().add("nav-tree-header");
                 return;
             }
 

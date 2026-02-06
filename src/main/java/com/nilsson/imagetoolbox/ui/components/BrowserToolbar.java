@@ -211,8 +211,20 @@ public class BrowserToolbar extends HBox implements JavaView<BrowserToolbarViewM
             for (String item : items) {
                 MenuItem mi = new MenuItem();
                 if ("Stars".equals(label)) {
-                    mi.setGraphic(createStarRating(Integer.parseInt(item)));
-                    mi.setText(""); // Graphic only
+                    if ("Any Star Count".equals(item)) {
+                        Label textLabel = new Label(item);
+                        textLabel.setAlignment(Pos.CENTER_LEFT);
+                        textLabel.setMaxWidth(Double.MAX_VALUE);
+                        mi.setGraphic(textLabel);
+                        mi.setText(""); // Use graphic for alignment control
+                    } else {
+                        try {
+                            mi.setGraphic(createStarRating(Integer.parseInt(item)));
+                            mi.setText(""); // Graphic only
+                        } catch (NumberFormatException e) {
+                            mi.setText(item); // Fallback
+                        }
+                    }
                 } else {
                     mi.setText(item);
                 }
@@ -242,7 +254,11 @@ public class BrowserToolbar extends HBox implements JavaView<BrowserToolbarViewM
             String val = boundProperty.get();
             if (val != null && !val.isEmpty()) {
                 if ("Stars".equals(label)) {
-                    chip.setText(val + " ★");
+                    if ("Any Star Count".equals(val)) {
+                        chip.setText("Starred");
+                    } else {
+                        chip.setText(val + " ★");
+                    }
                 } else {
                     chip.setText(val);
                 }

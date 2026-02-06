@@ -70,7 +70,7 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
     private final ObservableList<String> collectionList = FXCollections.observableArrayList();
-    private final ObservableList<String> stars = FXCollections.observableArrayList("1", "2", "3", "4", "5");
+    private final ObservableList<String> stars = FXCollections.observableArrayList("Any Star Count", "1", "2", "3", "4", "5");
     private final ObjectProperty<String> selectedStar = new SimpleObjectProperty<>();
 
     // Unified task to prevent race conditions between folder loading and searching
@@ -185,8 +185,8 @@ public class ImageBrowserViewModel implements ViewModel {
         filteredFiles.clear();
         allFilesCache.clear();
 
+        // If no filters are active, reload current folder from disk
         if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora) && (star == null || star.isEmpty())) {
-            // If no filters, reload current folder from disk
             File last = dataManager.getLastFolder();
             if (last != null) loadFolder(last);
             return;
@@ -196,7 +196,11 @@ public class ImageBrowserViewModel implements ViewModel {
         if (!isAll(model)) filters.put("Model", model);
         if (!isAll(sampler)) filters.put("Sampler", sampler);
         if (!isAll(lora)) filters.put("Loras", lora);
-        if (star != null && !star.isEmpty()) filters.put("Rating", star);
+        
+        // Pass "Any Star Count" or specific rating to the repository
+        if (star != null && !star.isEmpty()) {
+            filters.put("Rating", star);
+        }
 
         Task<List<File>> task = new Task<>() {
             @Override
