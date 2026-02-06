@@ -73,7 +73,8 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObservableList<String> stars = FXCollections.observableArrayList("1", "2", "3", "4", "5");
     private final ObjectProperty<String> selectedStar = new SimpleObjectProperty<>();
 
-    private Task<List<File>> currentSearchTask = null;
+    // Unified task to prevent race conditions between folder loading and searching
+    private Task<List<File>> activeTask = null;
     private int currentPage = 0;
     private boolean isLoadingPage = false;
 
@@ -110,7 +111,7 @@ public class ImageBrowserViewModel implements ViewModel {
         if (folder == null || !folder.isDirectory()) return;
 
         indexingService.cancel();
-        cancelActiveTasks();
+        cancelActiveTasks(); // CRITICAL: Cancel any running search or previous load to prevent duplicates
 
         dataManager.setLastFolder(folder);
         currentFolderMetadata.clear();
@@ -133,18 +134,22 @@ public class ImageBrowserViewModel implements ViewModel {
             }
         };
         task.setOnSucceeded(e -> {
+            if (activeTask != task) return; // Ignore if a new task started
+
             List<File> files = task.getValue();
             allFilesCache.addAll(files);
             loadNextPage(); // Load initial page
 
             indexingService.startIndexing(files, this::onBatchIndexed);
         });
+
+        activeTask = task;
         executor.submit(task);
     }
 
     public void loadNextPage() {
         if (isLoadingPage || allFilesCache.isEmpty()) return;
-        
+
         int start = currentPage * PAGE_SIZE;
         if (start >= allFilesCache.size()) return;
 
@@ -167,9 +172,7 @@ public class ImageBrowserViewModel implements ViewModel {
     // --- Search & Filtering Logic ---
 
     private void triggerSearch() {
-        if (currentSearchTask != null && !currentSearchTask.isDone()) {
-            currentSearchTask.cancel(true);
-        }
+        cancelActiveTasks(); // Cancel any running folder load or previous search
 
         String query = searchQuery.get();
         String model = selectedModel.get();
@@ -183,8 +186,7 @@ public class ImageBrowserViewModel implements ViewModel {
         allFilesCache.clear();
 
         if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora) && (star == null || star.isEmpty())) {
-            // If no filters, reload current folder from disk (or cache if we kept it separately)
-            // For simplicity, re-trigger loadFolder if we have a last folder, or just clear if not.
+            // If no filters, reload current folder from disk
             File last = dataManager.getLastFolder();
             if (last != null) loadFolder(last);
             return;
@@ -199,20 +201,18 @@ public class ImageBrowserViewModel implements ViewModel {
         Task<List<File>> task = new Task<>() {
             @Override
             protected List<File> call() {
-                // Fetch ALL matching paths (or a very large limit) to cache them for pagination
-                // Ideally, the repo would support offset/limit directly, but for now we cache the result list
-                List<String> paths = imageRepo.findPaths(query, filters, 100000); 
+                List<String> paths = imageRepo.findPaths(query, filters, 100000);
                 return paths.stream()
                         .map(File::new)
                         .filter(File::exists)
+                        .map(File::getAbsoluteFile) // Ensure consistent path representation
+                        .distinct()                 // Remove duplicates (e.g. case variants or mixed separators)
                         .collect(Collectors.toList());
             }
         };
 
         task.setOnSucceeded(e -> {
-            if (currentSearchTask != task) {
-                return;
-            }
+            if (activeTask != task) return;
 
             List<File> results = task.getValue();
             if (results != null) {
@@ -225,7 +225,7 @@ public class ImageBrowserViewModel implements ViewModel {
             }
         });
 
-        currentSearchTask = task;
+        activeTask = task;
         executor.submit(task);
     }
 
@@ -347,12 +347,12 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public void loadCollection(String name) {
         indexingService.cancel();
-        
-        // Reset state
+        cancelActiveTasks();
+
         allFilesCache.clear();
         filteredFiles.clear();
         currentPage = 0;
-        
+
         List<File> c = dataManager.getFilesFromCollection(name);
         allFilesCache.addAll(c);
         loadNextPage();
@@ -417,7 +417,9 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     private void cancelActiveTasks() {
-        if (currentSearchTask != null && !currentSearchTask.isDone()) currentSearchTask.cancel(true);
+        if (activeTask != null && !activeTask.isDone()) {
+            activeTask.cancel(true);
+        }
     }
 
     public void search(String query) {
@@ -426,11 +428,12 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public void loadStarred() {
         indexingService.cancel();
-        
+        cancelActiveTasks();
+
         allFilesCache.clear();
         filteredFiles.clear();
         currentPage = 0;
-        
+
         List<File> starred = dataManager.getStarredFilesList();
         allFilesCache.addAll(starred);
         loadNextPage();

@@ -10,8 +10,11 @@ import javafx.beans.value.ChangeListener;
 import javafx.collections.ListChangeListener;
 import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollBar;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyEvent;
@@ -22,6 +25,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.io.File;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.function.BiConsumer;
 
@@ -43,6 +47,7 @@ import java.util.function.BiConsumer;
  utilizing {@link ThumbnailCache} to avoid redundant I/O.</li>
  <li><b>Visual Feedback:</b> Each image card displays metadata labels, star ratings, and
  selection states using CSS PseudoClasses.</li>
+ <li><b>Infinite Scroll:</b> Automatically triggers pagination when the user scrolls near the bottom.</li>
  </ul>
  */
 public class GalleryView extends StackPane {
@@ -57,6 +62,7 @@ public class GalleryView extends StackPane {
     private final BiConsumer<File, Boolean> onFileSelected;
 
     private final DoubleProperty tileSize = new SimpleDoubleProperty(160);
+    private ScrollBar verticalScrollBar;
 
     // ------------------------------------------------------------------------
     // Constructor & Initialization
@@ -85,12 +91,42 @@ public class GalleryView extends StackPane {
 
         // State Listeners
         viewModel.getFilteredFiles().addListener((ListChangeListener<File>) c -> {
-            Platform.runLater(() -> gridView.getItems().setAll(viewModel.getFilteredFiles()));
+            Platform.runLater(() -> {
+                // Preserve selection if possible, or just update items
+                gridView.getItems().setAll(viewModel.getFilteredFiles());
+            });
         });
 
         // Event Handling
         this.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyNavigation);
         this.setOnMousePressed(e -> this.requestFocus());
+
+        // Setup Infinite Scroll
+        // GridView (ControlsFX) uses VirtualFlow internally. We need to find the ScrollBar.
+        // Since VirtualFlow is created lazily or is internal, we attach a listener to the children
+        // or use a layout pulse to find it.
+        gridView.skinProperty().addListener((obs, oldSkin, newSkin) -> {
+            if (newSkin != null) {
+                Platform.runLater(this::findAndAttachScrollBarListener);
+            }
+        });
+    }
+
+    private void findAndAttachScrollBarListener() {
+        if (verticalScrollBar != null) return;
+
+        Set<Node> scrollBars = this.lookupAll(".scroll-bar");
+        for (Node node : scrollBars) {
+            if (node instanceof ScrollBar bar && bar.getOrientation() == Orientation.VERTICAL) {
+                this.verticalScrollBar = bar;
+                bar.valueProperty().addListener((obs, oldVal, newVal) -> {
+                    if (newVal.doubleValue() >= bar.getMax() * 0.8) {
+                        viewModel.loadNextPage();
+                    }
+                });
+                break;
+            }
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -134,6 +170,11 @@ public class GalleryView extends StackPane {
         if (newIndex != currentIndex) {
             File newFile = gridView.getItems().get(newIndex);
             onFileSelected.accept(newFile, false);
+            
+            // Auto-load next page if navigating near the end via keyboard
+            if (newIndex >= gridView.getItems().size() - columns) {
+                viewModel.loadNextPage();
+            }
         }
         e.consume();
     }
