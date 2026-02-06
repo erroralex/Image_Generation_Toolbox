@@ -305,7 +305,7 @@ public class IndexingService {
     private void handleFileCreation(File file) {
         try {
             Map<String, String> meta = metaService.getExtractedData(file);
-            saveToDatabase(file, meta);
+            // Use dataManager to ensure correct path normalization
             dataManager.cacheMetadata(file, meta);
             logger.debug("Indexed new/modified file: {}", file.getName());
         } catch (Exception e) {
@@ -348,23 +348,14 @@ public class IndexingService {
                 meta = dataManager.getCachedMetadata(file);
             } else {
                 meta = metaService.getExtractedData(file);
-                saveToDatabase(file, meta);
+                // Use dataManager to ensure correct path normalization
+                dataManager.cacheMetadata(file, meta);
             }
 
-            dataManager.cacheMetadata(file, meta);
             metadataMap.put(file, meta);
         }
 
         return new BatchResult(metadataMap, ratingMap);
-    }
-
-    private void saveToDatabase(File file, Map<String, String> meta) {
-        try {
-            int id = imageRepo.getOrCreateId(file.getAbsolutePath(), null);
-            imageRepo.saveMetadata(id, meta);
-        } catch (Exception e) {
-            logger.error("Failed to save metadata for {}", file.getName(), e);
-        }
     }
 
     // --- Data Transfer Objects ---

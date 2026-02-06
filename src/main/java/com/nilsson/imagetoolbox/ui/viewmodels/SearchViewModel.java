@@ -35,6 +35,7 @@ public class SearchViewModel implements ViewModel {
     private final ObjectProperty<String> selectedModel = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
     private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
+    private final ObjectProperty<String> selectedTag = new SimpleObjectProperty<>(null);
     private final ObservableList<String> stars = FXCollections.observableArrayList("Any Star Count", "1", "2", "3", "4", "5");
     private final ObjectProperty<String> selectedStar = new SimpleObjectProperty<>();
 
@@ -124,6 +125,10 @@ public class SearchViewModel implements ViewModel {
 
     public ObjectProperty<String> selectedLoraProperty() {
         return selectedLora;
+    }
+
+    public ObjectProperty<String> selectedTagProperty() {
+        return selectedTag;
     }
 
     public ObservableList<String> getStars() {

@@ -1,5 +1,6 @@
 package com.nilsson.imagetoolbox.ui.viewmodels;
 
+import com.nilsson.imagetoolbox.data.UserDataManager;
 import de.saxsys.mvvmfx.ViewModel;
 import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.ObjectProperty;
@@ -42,6 +43,7 @@ public class MetadataSidebarViewModel implements ViewModel {
 
     private final ImageBrowserViewModel mainViewModel;
     private final CollectionViewModel collectionViewModel;
+    private final UserDataManager userDataManager;
 
     private final ObjectProperty<File> currentFile = new SimpleObjectProperty<>();
     private final ObjectProperty<Map<String, String>> activeMetadata = new SimpleObjectProperty<>();
@@ -59,11 +61,13 @@ public class MetadataSidebarViewModel implements ViewModel {
 
      @param mainViewModel The primary view model managing the global application state.
      @param collectionViewModel The view model managing collections.
+     @param userDataManager The manager for user data operations.
      */
     @Inject
-    public MetadataSidebarViewModel(ImageBrowserViewModel mainViewModel, CollectionViewModel collectionViewModel) {
+    public MetadataSidebarViewModel(ImageBrowserViewModel mainViewModel, CollectionViewModel collectionViewModel, UserDataManager userDataManager) {
         this.mainViewModel = mainViewModel;
         this.collectionViewModel = collectionViewModel;
+        this.userDataManager = userDataManager;
 
         this.activeMetadata.bind(mainViewModel.activeMetadataProperty());
         this.activeTags.bind(mainViewModel.activeTagsProperty());
@@ -87,6 +91,13 @@ public class MetadataSidebarViewModel implements ViewModel {
      */
     public ObjectProperty<Map<String, String>> activeMetadataProperty() {
         return activeMetadata;
+    }
+
+    /**
+     @return An observable property containing a set of tags for the current image.
+     */
+    public ObjectProperty<Set<String>> activeTagsProperty() {
+        return activeTags;
     }
 
     /**
@@ -138,5 +149,23 @@ public class MetadataSidebarViewModel implements ViewModel {
      */
     public void addToCollection(String collectionName) {
         mainViewModel.addSelectedToCollection(collectionName);
+    }
+
+    /**
+     Adds a new tag to the currently selected image.
+
+     @param tag The tag to add.
+     */
+    public void addTag(String tag) {
+        mainViewModel.addTag(tag);
+    }
+
+    /**
+     Removes a tag from the currently selected image.
+
+     @param tag The tag to remove.
+     */
+    public void removeTag(String tag) {
+        mainViewModel.removeTag(tag);
     }
 }

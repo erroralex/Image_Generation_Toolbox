@@ -15,6 +15,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.*;
 import javafx.stage.Modality;
 import javafx.stage.PopupWindow;
@@ -28,6 +29,7 @@ import java.io.File;
 import java.net.URL;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,6 +47,7 @@ import java.util.regex.Pattern;
  <li><b>Prompt Analysis:</b> Separates positive and negative prompts into scrollable, copy-friendly blocks.</li>
  <li><b>Technical Parameters:</b> A structured grid for Samplers, Schedulers, Seeds, and CFG scales.</li>
  <li><b>Resource Management:</b> Dynamic chip-based display for LoRAs and other external resources.</li>
+ <li><b>Tagging:</b> Interface for viewing, adding, and removing generic tags.</li>
  <li><b>Organization:</b> Contextual collection management for quick sorting of assets.</li>
  </ul>
  </p>
@@ -83,6 +86,8 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
     private TextArea negativePromptArea;
     private TextField softwareField, modelField, seedField, samplerField, schedulerField, cfgField, stepsField, resField;
     private FlowPane lorasFlow;
+    private FlowPane tagsFlow;
+    private TextField tagInputField;
     private ComboBox<String> collectionCombo;
     private File currentFile;
     private String currentRawMetadata;
@@ -176,6 +181,7 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
         cfgField = addTechItem(techGrid, "CFG", 0, 4, 1);
         stepsField = addTechItem(techGrid, "Steps", 1, 4, 1);
 
+        // LoRA Section
         VBox loraBox = new VBox(8);
         Label loraTitle = new Label("RESOURCES / LoRAs");
         loraTitle.getStyleClass().add("section-label");
@@ -183,6 +189,28 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
         lorasFlow.setMaxWidth(340);
         loraBox.getChildren().addAll(loraTitle, lorasFlow);
 
+        // Tags Section
+        VBox tagsBox = new VBox(8);
+        Label tagsTitle = new Label("TAGS");
+        tagsTitle.getStyleClass().add("section-label");
+        tagsFlow = new FlowPane(6, 6);
+        tagsFlow.setMaxWidth(340);
+
+        HBox tagInputBox = new HBox(5);
+        tagInputField = new TextField();
+        tagInputField.setPromptText("Add tag...");
+        tagInputField.getStyleClass().add("tag-input-field");
+        HBox.setHgrow(tagInputField, Priority.ALWAYS);
+        
+        Button addTagBtn = createIconButton("fa-plus:12:white", "Add Tag", e -> addTag());
+        tagInputField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) addTag();
+        });
+
+        tagInputBox.getChildren().addAll(tagInputField, addTagBtn);
+        tagsBox.getChildren().addAll(tagsTitle, tagsFlow, tagInputBox);
+
+        // Collection Section
         HBox collectionBox = new HBox(10);
         collectionBox.setAlignment(Pos.CENTER_LEFT);
         collectionCombo = new ComboBox<>();
@@ -211,7 +239,7 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
         collectionBox.getChildren().addAll(collectionCombo, newColBtn, addColBtn);
 
         content.getChildren().addAll(starRatingBox, new Separator(), metaHeader, posPromptBox, negPromptBox,
-                new Separator(), techGrid, new Separator(), loraBox, new Region(), collectionBox);
+                new Separator(), techGrid, new Separator(), loraBox, new Separator(), tagsBox, new Region(), collectionBox);
         scrollContent.setContent(content);
 
         this.getChildren().addAll(headerContainer, scrollContent);
@@ -219,6 +247,7 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
 
         // Bindings
         viewModel.activeMetadataProperty().addListener((obs, old, meta) -> updateData(viewModel.currentFileProperty().get(), meta));
+        viewModel.activeTagsProperty().addListener((obs, old, tags) -> updateTags(tags));
         viewModel.activeRatingProperty().addListener((obs, old, rating) -> setRating(rating.intValue()));
         viewModel.getCollections().addListener((ListChangeListener<String>) c -> setCollections(viewModel.getCollections()));
         setCollections(viewModel.getCollections());
@@ -245,6 +274,7 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
             promptArea.setText("");
             negativePromptArea.setText("");
             lorasFlow.getChildren().clear();
+            tagsFlow.getChildren().clear();
             return;
         }
 
@@ -284,6 +314,15 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
             } else {
                 Matcher m = Pattern.compile("<lora:([^:]+):").matcher(promptArea.getText());
                 while (m.find()) addLoraChip(m.group(1));
+            }
+        }
+    }
+
+    public void updateTags(Set<String> tags) {
+        tagsFlow.getChildren().clear();
+        if (tags != null) {
+            for (String tag : tags) {
+                addTagChip(tag);
             }
         }
     }
@@ -410,6 +449,35 @@ public class MetadataSidebar extends VBox implements JavaView<MetadataSidebarVie
         tag.setMinWidth(Region.USE_PREF_SIZE);
         tag.setMaxWidth(330);
         lorasFlow.getChildren().add(tag);
+    }
+
+    private void addTagChip(String text) {
+        HBox chip = new HBox(4);
+        chip.setAlignment(Pos.CENTER_LEFT);
+        chip.getStyleClass().add("tag-chip");
+        
+        Label lbl = new Label(text);
+        lbl.setStyle("-fx-text-fill: white;");
+        
+        Button removeBtn = new Button();
+        removeBtn.setGraphic(new FontIcon("fa-times:10:white"));
+        removeBtn.getStyleClass().add("icon-button-small");
+        removeBtn.setOnAction(e -> {
+            viewModel.removeTag(text);
+            tagsFlow.getChildren().remove(chip); // Immediate UI update for removal
+        });
+        
+        chip.getChildren().addAll(lbl, removeBtn);
+        tagsFlow.getChildren().add(chip);
+    }
+
+    private void addTag() {
+        String tag = tagInputField.getText().trim();
+        if (!tag.isEmpty()) {
+            viewModel.addTag(tag);
+            addTagChip(tag); // Immediate UI update
+            tagInputField.clear();
+        }
     }
 
     private Button createLargeIconButton(String icon, String tooltipText, javafx.event.EventHandler<javafx.event.ActionEvent> action) {
