@@ -646,3 +646,35 @@
     -fx-fill: white;
     -fx-icon-color: white;
 }
+
+/* ===================================================================================
+ * NOTIFICATIONS (ControlsFX)
+ * ===================================================================================
+ */
+
+.notification-bar > .pane {
+    -fx-background-color: -app-bg-panel;
+    -fx-border-color: -app-cyan;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.6), 10, 0, 0, 0);
+}
+
+.notification-bar .label {
+    -fx-text-fill: white !important; /* Force white text */
+    -fx-font-size: 13px;
+}
+
+.notification-bar .title {
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+    -fx-text-fill: -app-cyan-bright !important; /* Force bright cyan title */
+}
+
+.notification-bar .close-button {
+    -fx-background-color: transparent;
+    -fx-cursor: hand;
+}
+
+.notification-bar .close-button:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.1);
+}

@@ -3,9 +3,7 @@ package com.nilsson.imagetoolbox.ui.views;
 import com.nilsson.imagetoolbox.ui.components.BrowserToolbar;
 import com.nilsson.imagetoolbox.ui.components.FolderNav;
 import com.nilsson.imagetoolbox.ui.components.ImageLoader;
-import com.nilsson.imagetoolbox.ui.viewmodels.BrowserToolbarViewModel;
-import com.nilsson.imagetoolbox.ui.viewmodels.ImageBrowserViewModel;
-import com.nilsson.imagetoolbox.ui.viewmodels.MetadataSidebarViewModel;
+import com.nilsson.imagetoolbox.ui.viewmodels.*;
 import de.saxsys.mvvmfx.FluentViewLoader;
 import de.saxsys.mvvmfx.InjectViewModel;
 import de.saxsys.mvvmfx.JavaView;
@@ -60,6 +58,12 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
     @InjectViewModel
     private ImageBrowserViewModel viewModel;
+
+    @Inject
+    private SearchViewModel searchViewModel;
+
+    @Inject
+    private CollectionViewModel collectionViewModel;
 
     private final ExecutorService workerPool;
     private Future<?> currentLoadingTask;
@@ -118,7 +122,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         this.galleryView = new GalleryView(viewModel, workerPool, this::onGalleryFileSelected);
 
         // Load BrowserToolbar via MVVMFX with manual ViewModel injection
-        BrowserToolbarViewModel toolbarVM = new BrowserToolbarViewModel(viewModel);
+        BrowserToolbarViewModel toolbarVM = new BrowserToolbarViewModel(searchViewModel);
         ViewTuple<BrowserToolbar, BrowserToolbarViewModel> toolbarTuple = FluentViewLoader.javaView(BrowserToolbar.class)
                 .viewModel(toolbarVM)
                 .load();
@@ -242,7 +246,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
     private void setupInspector() {
         // Load MetadataSidebar via MVVMFX with manual ViewModel injection
-        MetadataSidebarViewModel sidebarVM = new MetadataSidebarViewModel(viewModel);
+        MetadataSidebarViewModel sidebarVM = new MetadataSidebarViewModel(viewModel, collectionViewModel);
         ViewTuple<MetadataSidebar, MetadataSidebarViewModel> sidebarTuple = FluentViewLoader.javaView(MetadataSidebar.class)
                 .viewModel(sidebarVM)
                 .load();

@@ -4,6 +4,7 @@ import com.nilsson.imagetoolbox.data.ImageRepository;
 import com.nilsson.imagetoolbox.data.UserDataManager;
 import com.nilsson.imagetoolbox.service.IndexingService;
 import com.nilsson.imagetoolbox.service.MetadataService;
+import com.nilsson.imagetoolbox.ui.components.NotificationService;
 import de.saxsys.mvvmfx.ViewModel;
 import javafx.application.Platform;
 import javafx.beans.property.*;
@@ -21,18 +22,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 /**
- <h2>ImageBrowserViewModel</h2>
- <p>
- The primary ViewModel for the image browsing interface, responsible for managing the state
- of the UI and coordinating between data repositories and background services.
- </p>
- <h3>Key Responsibilities:</h3>
- <ul>
- <li><b>State Management:</b> Maintains observable properties for data binding with the View.</li>
- <li><b>Asynchronous I/O:</b> Delegates file system and database operations to background threads.</li>
- <li><b>Search Coordination:</b> Aggregates user search queries and metadata filters.</li>
- <li><b>Caching:</b> Manages transient metadata caches to improve UI responsiveness.</li>
- </ul>
+ * <h2>ImageBrowserViewModel</h2>
+ * <p>
+ * The primary ViewModel for the image browsing interface, acting as a coordinator between
+ * specialized ViewModels and data services.
+ * </p>
+ * <h3>Key Responsibilities:</h3>
+ * <ul>
+ * <li><b>Coordination:</b> Orchestrates interactions between {@link SearchViewModel}, {@link CollectionViewModel}, and the data layer.</li>
+ * <li><b>State Management:</b> Maintains the state of the currently displayed file list and selection.</li>
+ * <li><b>Asynchronous I/O:</b> Delegates file system and database operations to background threads.</li>
+ * <li><b>Caching:</b> Manages transient metadata caches to improve UI responsiveness.</li>
+ * </ul>
  */
 public class ImageBrowserViewModel implements ViewModel {
 
@@ -45,6 +46,11 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ImageRepository imageRepo;
     private final IndexingService indexingService;
     private final ExecutorService executor;
+    private final NotificationService notificationService;
+
+    // --- Child ViewModels ---
+    private final SearchViewModel searchViewModel;
+    private final CollectionViewModel collectionViewModel;
 
     // --- View State ---
     private final ObservableList<File> selectedImages = FXCollections.observableArrayList();
@@ -61,18 +67,6 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObjectProperty<Set<String>> activeTags = new SimpleObjectProperty<>(new HashSet<>());
     private final IntegerProperty activeRating = new SimpleIntegerProperty(0);
 
-    // --- Filter Properties ---
-    private final StringProperty searchQuery = new SimpleStringProperty("");
-    private final ObservableList<String> availableModels = FXCollections.observableArrayList();
-    private final ObservableList<String> availableSamplers = FXCollections.observableArrayList();
-    private final ObservableList<String> loras = FXCollections.observableArrayList();
-    private final ObjectProperty<String> selectedModel = new SimpleObjectProperty<>(null);
-    private final ObjectProperty<String> selectedSampler = new SimpleObjectProperty<>(null);
-    private final ObjectProperty<String> selectedLora = new SimpleObjectProperty<>(null);
-    private final ObservableList<String> collectionList = FXCollections.observableArrayList();
-    private final ObservableList<String> stars = FXCollections.observableArrayList("Any Star Count", "1", "2", "3", "4", "5");
-    private final ObjectProperty<String> selectedStar = new SimpleObjectProperty<>();
-
     // Unified task to prevent race conditions between folder loading and searching
     private Task<List<File>> activeTask = null;
     private int currentPage = 0;
@@ -85,24 +79,28 @@ public class ImageBrowserViewModel implements ViewModel {
                                  MetadataService metaService,
                                  ImageRepository imageRepo,
                                  IndexingService indexingService,
-                                 ExecutorService executor) {
+                                 ExecutorService executor,
+                                 SearchViewModel searchViewModel,
+                                 CollectionViewModel collectionViewModel,
+                                 NotificationService notificationService) {
         this.dataManager = dataManager;
         this.metaService = metaService;
         this.imageRepo = imageRepo;
         this.indexingService = indexingService;
         this.executor = executor;
+        this.searchViewModel = searchViewModel;
+        this.collectionViewModel = collectionViewModel;
+        this.notificationService = notificationService;
 
         setupListeners();
-        refreshCollections();
-        loadFilters();
     }
 
     private void setupListeners() {
-        searchQuery.addListener((obs, old, val) -> triggerSearch());
-        selectedModel.addListener((obs, old, val) -> triggerSearch());
-        selectedSampler.addListener((obs, old, val) -> triggerSearch());
-        selectedLora.addListener((obs, old, val) -> triggerSearch());
-        selectedStar.addListener((obs, old, val) -> triggerSearch());
+        searchViewModel.searchQueryProperty().addListener((obs, old, val) -> triggerSearch());
+        searchViewModel.selectedModelProperty().addListener((obs, old, val) -> triggerSearch());
+        searchViewModel.selectedSamplerProperty().addListener((obs, old, val) -> triggerSearch());
+        searchViewModel.selectedLoraProperty().addListener((obs, old, val) -> triggerSearch());
+        searchViewModel.selectedStarProperty().addListener((obs, old, val) -> triggerSearch());
     }
 
     // --- Folder Loading & Indexing ---
@@ -116,7 +114,7 @@ public class ImageBrowserViewModel implements ViewModel {
         dataManager.setLastFolder(folder);
         currentFolderMetadata.clear();
         ratingCache.clear();
-        searchQuery.set("");
+        searchViewModel.searchQueryProperty().set("");
         allFilesCache.clear();
         filteredFiles.clear();
         currentPage = 0;
@@ -143,6 +141,11 @@ public class ImageBrowserViewModel implements ViewModel {
             indexingService.startIndexing(files, this::onBatchIndexed);
         });
 
+        task.setOnFailed(e -> {
+            logger.error("Failed to load folder", task.getException());
+            notificationService.showError("Load Failed", "Could not load folder: " + folder.getName());
+        });
+
         activeTask = task;
         executor.submit(task);
     }
@@ -165,8 +168,8 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     private void onBatchIndexed(IndexingService.BatchResult result) {
-        currentFolderMetadata.putAll(result.metadata);
-        ratingCache.putAll(result.ratings);
+        currentFolderMetadata.putAll(result.metadata());
+        ratingCache.putAll(result.ratings());
     }
 
     // --- Search & Filtering Logic ---
@@ -174,11 +177,11 @@ public class ImageBrowserViewModel implements ViewModel {
     private void triggerSearch() {
         cancelActiveTasks(); // Cancel any running folder load or previous search
 
-        String query = searchQuery.get();
-        String model = selectedModel.get();
-        String sampler = selectedSampler.get();
-        String lora = selectedLora.get();
-        String star = selectedStar.get();
+        String query = searchViewModel.searchQueryProperty().get();
+        String model = searchViewModel.selectedModelProperty().get();
+        String sampler = searchViewModel.selectedSamplerProperty().get();
+        String lora = searchViewModel.selectedLoraProperty().get();
+        String star = searchViewModel.selectedStarProperty().get();
 
         // Reset pagination state
         currentPage = 0;
@@ -186,17 +189,17 @@ public class ImageBrowserViewModel implements ViewModel {
         allFilesCache.clear();
 
         // If no filters are active, reload current folder from disk
-        if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora) && (star == null || star.isEmpty())) {
+        if ((query == null || query.isBlank()) && searchViewModel.isAll(model) && searchViewModel.isAll(sampler) && searchViewModel.isAll(lora) && (star == null || star.isEmpty())) {
             File last = dataManager.getLastFolder();
             if (last != null) loadFolder(last);
             return;
         }
 
         Map<String, String> filters = new HashMap<>();
-        if (!isAll(model)) filters.put("Model", model);
-        if (!isAll(sampler)) filters.put("Sampler", sampler);
-        if (!isAll(lora)) filters.put("Loras", lora);
-        
+        if (!searchViewModel.isAll(model)) filters.put("Model", model);
+        if (!searchViewModel.isAll(sampler)) filters.put("Sampler", sampler);
+        if (!searchViewModel.isAll(lora)) filters.put("Loras", lora);
+
         // Pass "Any Star Count" or specific rating to the repository
         if (star != null && !star.isEmpty()) {
             filters.put("Rating", star);
@@ -229,45 +232,13 @@ public class ImageBrowserViewModel implements ViewModel {
             }
         });
 
+        task.setOnFailed(e -> {
+            logger.error("Search failed", task.getException());
+            notificationService.showError("Search Failed", "An error occurred while searching.");
+        });
+
         activeTask = task;
         executor.submit(task);
-    }
-
-    private void loadFilters() {
-        executor.submit(() -> {
-            try {
-                List<String> rawModels = imageRepo.getDistinctValues("Model");
-                List<String> rawSamplers = imageRepo.getDistinctValues("Sampler");
-                List<String> rawLoras = imageRepo.getDistinctValues("Loras");
-
-                Platform.runLater(() -> {
-                    updateFilterList(availableModels, rawModels, false);
-                    updateFilterList(availableSamplers, rawSamplers, false);
-                    updateFilterList(loras, rawLoras, true);
-                });
-            } catch (Exception e) {
-                logger.error("Failed to load filters", e);
-            }
-        });
-    }
-
-    private void updateFilterList(ObservableList<String> list, List<String> raw, boolean isLora) {
-        Set<String> unique = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        if (raw != null) {
-            for (String item : raw) {
-                if (item == null || item.isBlank()) continue;
-                if (isLora) {
-                    for (String p : item.split(",")) {
-                        String clean = cleanLoraName(p.trim());
-                        if (!clean.isEmpty()) unique.add(clean);
-                    }
-                } else {
-                    unique.add(item.trim());
-                }
-            }
-        }
-        list.setAll(new ArrayList<>(unique));
-        list.add(0, "All");
     }
 
     // --- Selection & Sidebar Management ---
@@ -332,21 +303,23 @@ public class ImageBrowserViewModel implements ViewModel {
         List<File> targets = new ArrayList<>(selectedImages);
         executor.submit(() -> {
             List<File> deleted = targets.stream().filter(dataManager::moveFileToTrash).collect(Collectors.toList());
-            if (!deleted.isEmpty()) Platform.runLater(() -> {
-                allFilesCache.removeAll(deleted);
-                filteredFiles.removeAll(deleted);
-                updateSelection(Collections.emptyList());
-            });
+            if (!deleted.isEmpty()) {
+                Platform.runLater(() -> {
+                    allFilesCache.removeAll(deleted);
+                    filteredFiles.removeAll(deleted);
+                    updateSelection(Collections.emptyList());
+                    notificationService.showInfo("Files Deleted", deleted.size() + " files moved to trash.");
+                });
+            } else {
+                notificationService.showWarning("Delete Failed", "Could not move files to trash.");
+            }
         });
     }
 
     // --- Collection & Folder Pinning ---
 
     public void refreshCollections() {
-        executor.submit(() -> {
-            List<String> c = dataManager.getCollections();
-            Platform.runLater(() -> collectionList.setAll(c));
-        });
+        collectionViewModel.refreshCollections();
     }
 
     public void loadCollection(String name) {
@@ -363,30 +336,33 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     public void createNewCollection(String n) {
-        dataManager.createCollection(n);
-        refreshCollections();
+        collectionViewModel.createNewCollection(n);
+        notificationService.showInfo("Collection Created", "Created collection: " + n);
     }
 
     public void deleteCollection(String n) {
-        dataManager.deleteCollection(n);
-        refreshCollections();
+        collectionViewModel.deleteCollection(n);
+        notificationService.showInfo("Collection Deleted", "Deleted collection: " + n);
     }
 
     public void addSelectedToCollection(String n) {
-        List<File> t = new ArrayList<>(selectedImages);
-        executor.submit(() -> t.forEach(f -> dataManager.addImageToCollection(n, f)));
+        collectionViewModel.addFilesToCollection(n, selectedImages);
+        notificationService.showInfo("Added to Collection", "Added " + selectedImages.size() + " files to " + n);
     }
 
     public void addFilesToCollection(String name, List<File> files) {
-        executor.submit(() -> files.forEach(f -> dataManager.addImageToCollection(name, f)));
+        collectionViewModel.addFilesToCollection(name, files);
+        notificationService.showInfo("Added to Collection", "Added " + files.size() + " files to " + name);
     }
 
     public void pinFolder(File f) {
         dataManager.addPinnedFolder(f);
+        notificationService.showInfo("Folder Pinned", f.getName() + " pinned to sidebar.");
     }
 
     public void removePinnedFolder(File f) {
         dataManager.removePinnedFolder(f);
+        notificationService.showInfo("Folder Unpinned", f.getName() + " removed from sidebar.");
     }
 
     public List<File> getPinnedFolders() {
@@ -406,20 +382,6 @@ public class ImageBrowserViewModel implements ViewModel {
         return meta != null ? meta.getOrDefault(key, "") : "";
     }
 
-    private boolean isAll(String val) {
-        return val == null || "All".equals(val);
-    }
-
-    private String cleanLoraName(String raw) {
-        if (raw.toLowerCase().startsWith("<lora:")) raw = raw.substring(6);
-        if (raw.endsWith(">")) raw = raw.substring(0, raw.length() - 1);
-        int lastColon = raw.lastIndexOf(':');
-        if (lastColon > 0 && raw.substring(lastColon + 1).matches("[\\d.]+")) {
-            raw = raw.substring(0, lastColon);
-        }
-        return raw.trim();
-    }
-
     private void cancelActiveTasks() {
         if (activeTask != null && !activeTask.isDone()) {
             activeTask.cancel(true);
@@ -427,7 +389,7 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     public void search(String query) {
-        searchQuery.set(query);
+        searchViewModel.searchQueryProperty().set(query);
     }
 
     public void loadStarred() {
@@ -470,35 +432,35 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     public StringProperty searchQueryProperty() {
-        return searchQuery;
+        return searchViewModel.searchQueryProperty();
     }
 
     public ObservableList<String> getModels() {
-        return availableModels;
+        return searchViewModel.getModels();
     }
 
     public ObservableList<String> getSamplers() {
-        return availableSamplers;
+        return searchViewModel.getSamplers();
     }
 
     public ObjectProperty<String> selectedModelProperty() {
-        return selectedModel;
+        return searchViewModel.selectedModelProperty();
     }
 
     public ObjectProperty<String> selectedSamplerProperty() {
-        return selectedSampler;
+        return searchViewModel.selectedSamplerProperty();
     }
 
     public ObservableList<String> getCollectionList() {
-        return collectionList;
+        return collectionViewModel.getCollectionList();
     }
 
     public ObservableList<String> getLoras() {
-        return loras;
+        return searchViewModel.getLoras();
     }
 
     public ObjectProperty<String> selectedLoraProperty() {
-        return selectedLora;
+        return searchViewModel.selectedLoraProperty();
     }
 
     public int getSelectionCount() {
@@ -506,10 +468,10 @@ public class ImageBrowserViewModel implements ViewModel {
     }
 
     public ObservableList<String> getStars() {
-        return stars;
+        return searchViewModel.getStars();
     }
 
     public ObjectProperty<String> selectedStarProperty() {
-        return selectedStar;
+        return searchViewModel.selectedStarProperty();
     }
 }

@@ -5,6 +5,9 @@ import com.google.inject.Provides;
 import com.google.inject.Singleton;
 import com.nilsson.imagetoolbox.data.*;
 import com.nilsson.imagetoolbox.service.MetadataService;
+import com.nilsson.imagetoolbox.ui.components.NotificationService;
+import com.nilsson.imagetoolbox.ui.viewmodels.CollectionViewModel;
+import com.nilsson.imagetoolbox.ui.viewmodels.SearchViewModel;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,6 +23,9 @@ public class AppModule extends AbstractModule {
         bind(SettingsRepository.class).in(Singleton.class);
         bind(CollectionRepository.class).in(Singleton.class);
         bind(ImageRepository.class).in(Singleton.class);
+        bind(SearchViewModel.class).in(Singleton.class);
+        bind(CollectionViewModel.class).in(Singleton.class);
+        bind(NotificationService.class).in(Singleton.class);
     }
 
     /**

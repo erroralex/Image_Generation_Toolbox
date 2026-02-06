@@ -17,20 +17,20 @@ import javax.inject.Inject;
  and view-specific settings like card scaling and layout actions.</p>
  * <p>Key responsibilities include:</p>
  <ul>
- <li>Delegating search and filter state to the {@link ImageBrowserViewModel}.</li>
+ <li>Delegating search and filter state to the {@link SearchViewModel}.</li>
  <li>Providing UI-bound properties for grid resizing and layout switching.</li>
  <li>Exposing {@link Runnable} properties to handle UI events like search execution or view toggles.</li>
  </ul>
  * @see de.saxsys.mvvmfx.ViewModel
 
- @see ImageBrowserViewModel */
+ @see SearchViewModel */
 public class BrowserToolbarViewModel implements ViewModel {
 
     // ------------------------------------------------------------------------
     // Fields & State
     // ------------------------------------------------------------------------
 
-    private final ImageBrowserViewModel mainViewModel;
+    private final SearchViewModel searchViewModel;
 
     private final DoubleProperty cardSize = new SimpleDoubleProperty(160);
     private final ObjectProperty<Runnable> onGridAction = new SimpleObjectProperty<>();
@@ -42,48 +42,48 @@ public class BrowserToolbarViewModel implements ViewModel {
     // ------------------------------------------------------------------------
 
     @Inject
-    public BrowserToolbarViewModel(ImageBrowserViewModel mainViewModel) {
-        this.mainViewModel = mainViewModel;
+    public BrowserToolbarViewModel(SearchViewModel searchViewModel) {
+        this.searchViewModel = searchViewModel;
     }
 
     // ------------------------------------------------------------------------
-    // Search & Filter Delegation (mainViewModel)
+    // Search & Filter Delegation (searchViewModel)
     // ------------------------------------------------------------------------
 
     public StringProperty searchQueryProperty() {
-        return mainViewModel.searchQueryProperty();
+        return searchViewModel.searchQueryProperty();
     }
 
     public ObservableList<String> getModels() {
-        return mainViewModel.getModels();
+        return searchViewModel.getModels();
     }
 
     public ObjectProperty<String> selectedModelProperty() {
-        return mainViewModel.selectedModelProperty();
+        return searchViewModel.selectedModelProperty();
     }
 
     public ObservableList<String> getSamplers() {
-        return mainViewModel.getSamplers();
+        return searchViewModel.getSamplers();
     }
 
     public ObjectProperty<String> selectedSamplerProperty() {
-        return mainViewModel.selectedSamplerProperty();
+        return searchViewModel.selectedSamplerProperty();
     }
 
     public ObservableList<String> getLoras() {
-        return mainViewModel.getLoras();
+        return searchViewModel.getLoras();
     }
 
     public ObjectProperty<String> selectedLoraProperty() {
-        return mainViewModel.selectedLoraProperty();
+        return searchViewModel.selectedLoraProperty();
     }
 
     public ObservableList<String> getStars() {
-        return mainViewModel.getStars();
+        return searchViewModel.getStars();
     }
 
     public ObjectProperty<String> selectedStarProperty() {
-        return mainViewModel.selectedStarProperty();
+        return searchViewModel.selectedStarProperty();
     }
 
     // ------------------------------------------------------------------------
