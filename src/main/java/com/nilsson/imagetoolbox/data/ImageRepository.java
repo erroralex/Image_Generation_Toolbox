@@ -20,17 +20,13 @@ import java.util.stream.Collectors;
  <ul>
  <li><b>Core Identity Management:</b> Tracks files via unique paths and hashes, ensuring
  data integrity and mapping file system objects to database IDs.</li>
- <li><b>Advanced Search:</b> Dynamically generates SQL queries to support complex filtering
- and SQLite FTS5 (Full-Text Search) for rapid metadata retrieval.</li>
+ <li><b>Advanced Search:</b> Dynamically generates SQL queries to support complex filtering.</li>
  <li><b>Attribute Management:</b> Handles persistence for user-driven attributes such as
  ratings and "starred" status.</li>
  <li><b>Metadata & Tags:</b> Manages key-value metadata pairs and tags, supporting both
  batch operations and individual updates.</li>
  <li><b>Pinned Folders:</b> Provides persistence for a user's frequently accessed directories.</li>
  </ul>
- <p><b>FTS Integration:</b> To ensure metadata changes are immediately searchable, this class
- invokes {@code updateFtsIndex} following metadata or tag modifications, keeping the SQLite
- FTS5 virtual tables in sync with the primary relational storage.</p>
  */
 public class ImageRepository {
 
@@ -157,14 +153,18 @@ public class ImageRepository {
             StringBuilder sql = new StringBuilder("SELECT DISTINCT i.file_path FROM images i ");
             List<Object> params = new ArrayList<>();
 
-            boolean hasTextQuery = (query != null && !query.isBlank());
-            if (hasTextQuery) sql.append("JOIN metadata_fts fts ON fts.image_id = i.id ");
-
             sql.append("WHERE 1=1 ");
 
-            if (hasTextQuery) {
-                sql.append("AND fts.global_text MATCH ? ");
-                params.add(query);
+            if (query != null && !query.isBlank()) {
+                // Search in metadata values and tags using LIKE for broad compatibility
+                sql.append("AND (");
+                sql.append("EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.value LIKE ?) ");
+                sql.append("OR ");
+                sql.append("EXISTS (SELECT 1 FROM image_tags t WHERE t.image_id = i.id AND t.tag LIKE ?) ");
+                sql.append(") ");
+                String likeQuery = "%" + query + "%";
+                params.add(likeQuery);
+                params.add(likeQuery);
             }
 
             if (filters != null) {
@@ -185,6 +185,10 @@ public class ImageRepository {
                         // so we must use LIKE instead of exact equality.
                         sql.append("AND EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.key = ? AND m.value LIKE ?) ");
                         params.add(entry.getKey());
+                        params.add("%" + entry.getValue() + "%");
+                    } else if ("Tag".equals(entry.getKey())) {
+                        // Filter by generic tag with partial match support
+                        sql.append("AND EXISTS (SELECT 1 FROM image_tags t WHERE t.image_id = i.id AND t.tag LIKE ?) ");
                         params.add("%" + entry.getValue() + "%");
                     } else {
                         sql.append("AND EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.key = ? AND m.value = ?) ");
@@ -354,6 +358,18 @@ public class ImageRepository {
         }
     }
 
+    public void removeTag(int imageId, String tag) {
+        try (Connection conn = db.connect();
+             PreparedStatement pstmt = conn.prepareStatement("DELETE FROM image_tags WHERE image_id = ? AND tag = ?")) {
+            pstmt.setInt(1, imageId);
+            pstmt.setString(2, tag);
+            pstmt.executeUpdate();
+            updateFtsIndex(imageId);
+        } catch (SQLException e) {
+            logger.error("Failed to remove tag", e);
+        }
+    }
+
     public Set<String> getTags(String path) {
         Set<String> tags = new HashSet<>();
         String sql = "SELECT tag FROM image_tags t JOIN images i ON i.id = t.image_id WHERE i.file_path = ?";
@@ -408,9 +424,9 @@ public class ImageRepository {
         String sql = """
                     INSERT OR REPLACE INTO metadata_fts(image_id, global_text)
                     SELECT ?, group_concat(val, ' ') FROM (
-                        SELECT key || ':' || value as val FROM image_metadata WHERE image_id = ?
+                        SELECT value as val FROM image_metadata WHERE image_id = ?
                         UNION ALL
-                        SELECT 'tag:' || tag as val FROM image_tags WHERE image_id = ?
+                        SELECT tag as val FROM image_tags WHERE image_id = ?
                     )
                 """;
         try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -447,6 +463,27 @@ public class ImageRepository {
             }
         } catch (SQLException e) {
             logger.error("Failed to fetch distinct values for key: {}", key, e);
+        }
+        return results;
+    }
+
+    /**
+     Retrieves a list of distinct tags.
+     */
+    public List<String> getDistinctTags() {
+        List<String> results = new ArrayList<>();
+        String sql = "SELECT DISTINCT tag FROM image_tags ORDER BY tag ASC";
+        try (Connection conn = db.connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                String val = rs.getString("tag");
+                if (val != null && !val.isBlank()) {
+                    results.add(val);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to fetch distinct tags", e);
         }
         return results;
     }

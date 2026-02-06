@@ -101,6 +101,7 @@ public class ImageBrowserViewModel implements ViewModel {
         searchViewModel.selectedSamplerProperty().addListener((obs, old, val) -> triggerSearch());
         searchViewModel.selectedLoraProperty().addListener((obs, old, val) -> triggerSearch());
         searchViewModel.selectedStarProperty().addListener((obs, old, val) -> triggerSearch());
+        // Removed listener for selectedTagProperty as we are removing the dropdown
     }
 
     // --- Folder Loading & Indexing ---
@@ -182,7 +183,7 @@ public class ImageBrowserViewModel implements ViewModel {
         String sampler = searchViewModel.selectedSamplerProperty().get();
         String lora = searchViewModel.selectedLoraProperty().get();
         String star = searchViewModel.selectedStarProperty().get();
-
+        
         // Reset pagination state
         currentPage = 0;
         filteredFiles.clear();
@@ -204,6 +205,11 @@ public class ImageBrowserViewModel implements ViewModel {
         if (star != null && !star.isEmpty()) {
             filters.put("Rating", star);
         }
+        
+        // Tag filtering is now handled via the main search query in ImageRepository.findPaths
+        // The repository logic already checks for tags if "Tag" key is present, but since we removed the dropdown,
+        // we rely on the text search or we can parse tags from the query string if we want advanced syntax (e.g. tag:foo).
+        // For now, ImageRepository's findPaths uses FTS which includes tags in 'global_text', so searching for a tag name works.
 
         Task<List<File>> task = new Task<>() {
             @Override
@@ -280,6 +286,44 @@ public class ImageBrowserViewModel implements ViewModel {
                 }
             });
             executor.submit(metaTask);
+        }
+    }
+
+    public void reloadTags() {
+        File file = selectedImage.get();
+        if (file != null) {
+            Task<Set<String>> task = new Task<>() {
+                @Override
+                protected Set<String> call() {
+                    return dataManager.getTags(file);
+                }
+            };
+            task.setOnSucceeded(e -> {
+                if (Objects.equals(selectedImage.get(), file)) {
+                    activeTags.set(task.getValue());
+                }
+            });
+            executor.submit(task);
+        }
+    }
+
+    public void addTag(String tag) {
+        File file = selectedImage.get();
+        if (file != null && tag != null && !tag.isBlank()) {
+            executor.submit(() -> {
+                dataManager.addTag(file, tag);
+                Platform.runLater(this::reloadTags);
+            });
+        }
+    }
+
+    public void removeTag(String tag) {
+        File file = selectedImage.get();
+        if (file != null && tag != null) {
+            executor.submit(() -> {
+                dataManager.removeTag(file, tag);
+                Platform.runLater(this::reloadTags);
+            });
         }
     }
 

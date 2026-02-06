@@ -202,6 +202,12 @@ public class UserDataManager {
         if (id > 0) imageRepo.addTag(id, tag.trim());
     }
 
+    public void removeTag(File file, String tag) {
+        if (file == null || tag == null || tag.isBlank()) return;
+        int id = getOrCreateImageIdInternal(file);
+        if (id > 0) imageRepo.removeTag(id, tag.trim());
+    }
+
     public Set<String> getTags(File file) {
         return imageRepo.getTags(relativizePath(file));
     }

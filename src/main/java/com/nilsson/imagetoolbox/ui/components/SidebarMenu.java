@@ -79,8 +79,8 @@ public class SidebarMenu extends VBox {
         navItems.getChildren().addAll(
                 createNavItem("Library", FontAwesome.FOLDER_OPEN, "VIEW_TREE"),
                 createNavItem("Speed Sorter", FontAwesome.BOLT, "VIEW_SORTER"),
-                createNavItem("Metadata Scrub", FontAwesome.ERASER, "VIEW_SCRUB"),
-                createNavItem("Favorites", FontAwesome.STAR, "VIEW_FAVORITES")
+                createNavItem("Metadata Scrubber", FontAwesome.ERASER, "VIEW_SCRUB"),
+                createNavItem("Comparator", FontAwesome.MAGIC, "VIEW_FAVORITES")
         );
 
         // Logo Setup

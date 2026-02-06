@@ -1,5 +1,6 @@
 package com.nilsson.imagetoolbox.ui.views;
 
+import com.nilsson.imagetoolbox.data.UserDataManager;
 import com.nilsson.imagetoolbox.ui.components.BrowserToolbar;
 import com.nilsson.imagetoolbox.ui.components.FolderNav;
 import com.nilsson.imagetoolbox.ui.components.ImageLoader;
@@ -64,6 +65,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
     @Inject
     private CollectionViewModel collectionViewModel;
+
+    @Inject
+    private UserDataManager userDataManager;
 
     private final ExecutorService workerPool;
     private Future<?> currentLoadingTask;
@@ -246,7 +250,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
 
     private void setupInspector() {
         // Load MetadataSidebar via MVVMFX with manual ViewModel injection
-        MetadataSidebarViewModel sidebarVM = new MetadataSidebarViewModel(viewModel, collectionViewModel);
+        MetadataSidebarViewModel sidebarVM = new MetadataSidebarViewModel(viewModel, collectionViewModel, userDataManager);
         ViewTuple<MetadataSidebar, MetadataSidebarViewModel> sidebarTuple = FluentViewLoader.javaView(MetadataSidebar.class)
                 .viewModel(sidebarVM)
                 .load();
