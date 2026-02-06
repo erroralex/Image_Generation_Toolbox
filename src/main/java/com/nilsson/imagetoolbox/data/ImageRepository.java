@@ -174,6 +174,12 @@ public class ImageRepository {
                     if ("Rating".equals(entry.getKey())) {
                         sql.append("AND i.rating = ? ");
                         params.add(entry.getValue());
+                    } else if ("Loras".equals(entry.getKey())) {
+                        // Fix for Lora search: Loras are stored as comma-separated lists,
+                        // so we must use LIKE instead of exact equality.
+                        sql.append("AND EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.key = ? AND m.value LIKE ?) ");
+                        params.add(entry.getKey());
+                        params.add("%" + entry.getValue() + "%");
                     } else {
                         sql.append("AND EXISTS (SELECT 1 FROM image_metadata m WHERE m.image_id = i.id AND m.key = ? AND m.value = ?) ");
                         params.add(entry.getKey());
@@ -299,10 +305,19 @@ public class ImageRepository {
     }
 
     public void saveMetadata(int imageId, Map<String, String> meta) {
-        String sql = "INSERT OR REPLACE INTO image_metadata(image_id, key, value) VALUES(?, ?, ?)";
+        // Prevent duplicate metadata rows by clearing old data for this image first
+        String deleteSql = "DELETE FROM image_metadata WHERE image_id = ?";
+        String insertSql = "INSERT INTO image_metadata(image_id, key, value) VALUES(?, ?, ?)";
+
         try (Connection conn = db.connect()) {
             conn.setAutoCommit(false);
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            try (PreparedStatement pstmt = conn.prepareStatement(deleteSql)) {
+                pstmt.setInt(1, imageId);
+                pstmt.executeUpdate();
+            }
+
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                 for (Map.Entry<String, String> entry : meta.entrySet()) {
                     pstmt.setInt(1, imageId);
                     pstmt.setString(2, entry.getKey());
