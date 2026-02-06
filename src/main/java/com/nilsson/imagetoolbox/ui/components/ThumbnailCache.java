@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  A robust 2-tier Least Recently Used (LRU) cache system designed for JavaFX image thumbnails.
@@ -52,12 +53,14 @@ public class ThumbnailCache {
     private static final File CACHE_DIR = new File(System.getProperty("user.dir"), ".cache/thumbnails");
 
     // Executor for low-priority disk writes
-    private static final ExecutorService diskWriter = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "Thumbnail-Disk-Writer");
-        t.setPriority(Thread.MIN_PRIORITY);
-        t.setDaemon(true);
-        return t;
-    });
+    private static final ExecutorService diskWriter;
+
+    static {
+        ThreadFactory factory = Thread.ofVirtual()
+                .name("Thumbnail-Disk-Writer-", 1)
+                .factory();
+        diskWriter = Executors.newThreadPerTaskExecutor(factory);
+    }
 
     private static final Map<String, SoftReference<Image>> memCache = Collections.synchronizedMap(
             new LinkedHashMap<>(MAX_MEM_ENTRIES + 1, 0.75F, true) {

@@ -4,7 +4,11 @@ import com.nilsson.imagetoolbox.data.ImageRepository;
 import com.nilsson.imagetoolbox.data.UserDataManager;
 import com.nilsson.imagetoolbox.service.IndexingService;
 import com.nilsson.imagetoolbox.service.MetadataService;
+import com.nilsson.imagetoolbox.ui.components.NotificationService;
 import javafx.application.Platform;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.collections.FXCollections;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,20 +31,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- <h2>ImageBrowserViewModelTest</h2>
- <p>
- This test suite validates the orchestration logic within the {@link ImageBrowserViewModel}.
- It ensures that user interactions (filtering, selection, searching) correctly invoke
- underlying repositories and update the observable UI state.
- </p>
+ * <h2>ImageBrowserViewModelTest</h2>
+ * <p>
+ * This test suite validates the orchestration logic within the {@link ImageBrowserViewModel}.
+ * It ensures that user interactions (filtering, selection, searching) correctly invoke
+ * underlying repositories and update the observable UI state.
+ * </p>
  * <h3>Key Testing Strategies:</h3>
- <ul>
- <li><b>Direct Execution:</b> Background tasks are executed synchronously via {@link DirectExecutor}
- to maintain test determinism.</li>
- <li><b>FX Thread Synchronization:</b> Uses {@code Platform.runLater} with a {@code CountDownLatch}
- to bridge the gap between JUnit threads and the JavaFX Application Thread.</li>
- <li><b>Mocking Layer:</b> Isolates business logic from I/O bound services using Mockito.</li>
- </ul>
+ * <ul>
+ * <li><b>Direct Execution:</b> Background tasks are executed synchronously via {@link DirectExecutor}
+ * to maintain test determinism.</li>
+ * <li><b>FX Thread Synchronization:</b> Uses {@code Platform.runLater} with a {@code CountDownLatch}
+ * to bridge the gap between JUnit threads and the JavaFX Application Thread.</li>
+ * <li><b>Mocking Layer:</b> Isolates business logic from I/O bound services using Mockito.</li>
+ * </ul>
  */
 class ImageBrowserViewModelTest {
 
@@ -54,6 +58,12 @@ class ImageBrowserViewModelTest {
     private ImageRepository imageRepo;
     @Mock
     private IndexingService indexingService;
+    @Mock
+    private SearchViewModel searchViewModel;
+    @Mock
+    private CollectionViewModel collectionViewModel;
+    @Mock
+    private NotificationService notificationService;
 
     private ImageBrowserViewModel viewModel;
     private final ExecutorService executor = new DirectExecutor();
@@ -79,7 +89,22 @@ class ImageBrowserViewModelTest {
         when(dataManager.getCollections()).thenReturn(Collections.emptyList());
         when(imageRepo.getDistinctValues(any())).thenReturn(Collections.emptyList());
 
-        viewModel = new ImageBrowserViewModel(dataManager, metaService, imageRepo, indexingService, executor);
+        // Mock SearchViewModel properties
+        when(searchViewModel.searchQueryProperty()).thenReturn(new SimpleStringProperty(""));
+        when(searchViewModel.selectedModelProperty()).thenReturn(new SimpleObjectProperty<>(null));
+        when(searchViewModel.selectedSamplerProperty()).thenReturn(new SimpleObjectProperty<>(null));
+        when(searchViewModel.selectedLoraProperty()).thenReturn(new SimpleObjectProperty<>(null));
+        when(searchViewModel.selectedStarProperty()).thenReturn(new SimpleObjectProperty<>(null));
+        when(searchViewModel.getModels()).thenReturn(FXCollections.observableArrayList());
+        when(searchViewModel.getSamplers()).thenReturn(FXCollections.observableArrayList());
+        when(searchViewModel.getLoras()).thenReturn(FXCollections.observableArrayList());
+        when(searchViewModel.getStars()).thenReturn(FXCollections.observableArrayList());
+        when(searchViewModel.isAll(any())).thenCallRealMethod();
+
+        // Mock CollectionViewModel properties
+        when(collectionViewModel.getCollectionList()).thenReturn(FXCollections.observableArrayList());
+
+        viewModel = new ImageBrowserViewModel(dataManager, metaService, imageRepo, indexingService, executor, searchViewModel, collectionViewModel, notificationService);
         waitForFxEvents();
     }
 
@@ -98,7 +123,8 @@ class ImageBrowserViewModelTest {
         when(imageRepo.findPaths(anyString(), anyMap(), anyInt()))
                 .thenReturn(List.of(dummyFile.getAbsolutePath()));
 
-        viewModel.selectedModelProperty().set("SDXL");
+        // Simulate property change in SearchViewModel
+        searchViewModel.selectedModelProperty().set("SDXL");
 
         Map<String, String> expected = new HashMap<>();
         expected.put("Model", "SDXL");
@@ -129,8 +155,9 @@ class ImageBrowserViewModelTest {
         when(imageRepo.findPaths(anyString(), anyMap(), anyInt()))
                 .thenReturn(List.of(dummyFile.getAbsolutePath()));
 
-        viewModel.selectedModelProperty().set("SDXL");
-        viewModel.selectedSamplerProperty().set("Euler");
+        // Simulate property changes
+        searchViewModel.selectedModelProperty().set("SDXL");
+        searchViewModel.selectedSamplerProperty().set("Euler");
         waitForFxEvents();
 
         Map<String, String> expected = new HashMap<>();
@@ -152,8 +179,8 @@ class ImageBrowserViewModelTest {
     }
 
     /**
-     A synchronous ExecutorService implementation used to flatten asynchronous logic
-     during unit tests, ensuring sequential execution on the test thread.
+     * A synchronous ExecutorService implementation used to flatten asynchronous logic
+     * during unit tests, ensuring sequential execution on the test thread.
      */
     static class DirectExecutor implements ExecutorService {
 

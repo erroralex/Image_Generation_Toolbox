@@ -372,14 +372,7 @@ public class IndexingService {
     /**
      Container for results produced by a background indexing batch.
      */
-    public static class BatchResult {
-        public final Map<File, Map<String, String>> metadata;
-        public final Map<File, Integer> ratings;
-
-        public BatchResult(Map<File, Map<String, String>> metadata, Map<File, Integer> ratings) {
-            this.metadata = metadata;
-            this.ratings = ratings;
-        }
+    public record BatchResult(Map<File, Map<String, String>> metadata, Map<File, Integer> ratings) {
     }
 
     public enum ChangeType {
@@ -389,13 +382,6 @@ public class IndexingService {
     /**
      Event payload representing a file system change detected by the Watcher.
      */
-    public static class FileChangeEvent {
-        public final File file;
-        public final ChangeType type;
-
-        public FileChangeEvent(File file, ChangeType type) {
-            this.file = file;
-            this.type = type;
-        }
+    public record FileChangeEvent(File file, ChangeType type) {
     }
 }

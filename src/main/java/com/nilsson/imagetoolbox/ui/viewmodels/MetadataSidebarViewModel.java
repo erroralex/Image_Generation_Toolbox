@@ -41,6 +41,7 @@ public class MetadataSidebarViewModel implements ViewModel {
     // ------------------------------------------------------------------------
 
     private final ImageBrowserViewModel mainViewModel;
+    private final CollectionViewModel collectionViewModel;
 
     private final ObjectProperty<File> currentFile = new SimpleObjectProperty<>();
     private final ObjectProperty<Map<String, String>> activeMetadata = new SimpleObjectProperty<>();
@@ -57,10 +58,12 @@ public class MetadataSidebarViewModel implements ViewModel {
      to ensure the sidebar always reflects the global application state.
 
      @param mainViewModel The primary view model managing the global application state.
+     @param collectionViewModel The view model managing collections.
      */
     @Inject
-    public MetadataSidebarViewModel(ImageBrowserViewModel mainViewModel) {
+    public MetadataSidebarViewModel(ImageBrowserViewModel mainViewModel, CollectionViewModel collectionViewModel) {
         this.mainViewModel = mainViewModel;
+        this.collectionViewModel = collectionViewModel;
 
         this.activeMetadata.bind(mainViewModel.activeMetadataProperty());
         this.activeTags.bind(mainViewModel.activeTagsProperty());
@@ -103,7 +106,7 @@ public class MetadataSidebarViewModel implements ViewModel {
      @return An observable list of collection names.
      */
     public ObservableList<String> getCollections() {
-        return mainViewModel.getCollectionList();
+        return collectionViewModel.getCollectionList();
     }
 
     // ------------------------------------------------------------------------
@@ -125,7 +128,7 @@ public class MetadataSidebarViewModel implements ViewModel {
      @param name The unique name of the collection to create.
      */
     public void createCollection(String name) {
-        mainViewModel.createNewCollection(name);
+        collectionViewModel.createNewCollection(name);
     }
 
     /**
