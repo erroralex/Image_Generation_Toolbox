@@ -1,10 +1,13 @@
 package com.nilsson.imagetoolbox.ui.components;
 
+import com.nilsson.imagetoolbox.ui.viewmodels.BrowserToolbarViewModel;
+import de.saxsys.mvvmfx.InjectViewModel;
+import de.saxsys.mvvmfx.JavaView;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.StringProperty;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
+import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
@@ -13,6 +16,9 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import org.kordamp.ikonli.javafx.FontIcon;
+
+import java.net.URL;
+import java.util.ResourceBundle;
 
 /**
  A specialized UI component providing a centered, "Pill-style" floating toolbar
@@ -28,33 +34,35 @@ import org.kordamp.ikonli.javafx.FontIcon;
  <p>This component is designed to be overlayed or positioned at the top of an image browser,
  maintaining a maximum width to preserve its floating aesthetic.</p>
  */
-public class BrowserToolbar extends HBox {
+public class BrowserToolbar extends HBox implements JavaView<BrowserToolbarViewModel>, Initializable {
 
-    private final Slider sizeSlider;
-    private final TextField searchField;
-    private final ToggleButton gridBtn;
-    private final ToggleButton singleBtn;
-    private final ToggleGroup viewGroup;
+    @InjectViewModel
+    private BrowserToolbarViewModel viewModel;
 
-    private Runnable onGridAction;
-    private Runnable onSingleAction;
-    private Runnable onSearchEnter;
+    private Slider sizeSlider;
+    private TextField searchField;
+    private ToggleButton gridBtn;
+    private ToggleButton singleBtn;
+    private ToggleGroup viewGroup;
 
     // --- Constructor ---
 
-    public BrowserToolbar(StringProperty searchQuery,
-                          ObservableList<String> models, ObjectProperty<String> selectedModel,
-                          ObservableList<String> samplers, ObjectProperty<String> selectedSampler,
-                          ObservableList<String> loras, ObjectProperty<String> selectedLora,
-                          ObservableList<String> stars, ObjectProperty<String> selectedStar) {
-
+    public BrowserToolbar() {
         this.getStyleClass().add("browser-toolbar");
         this.setAlignment(Pos.CENTER_LEFT);
         this.setSpacing(12);
         this.setPadding(new Insets(6, 16, 6, 16));
         this.setMaxWidth(920);
         this.setPickOnBounds(true);
+    }
+    
+    // Setter for manual injection in tests
+    public void setViewModel(BrowserToolbarViewModel viewModel) {
+        this.viewModel = viewModel;
+    }
 
+    @Override
+    public void initialize(URL url, ResourceBundle resourceBundle) {
         // 1. Search Section
         StackPane searchContainer = new StackPane();
         searchContainer.getStyleClass().add("search-container");
@@ -75,7 +83,7 @@ public class BrowserToolbar extends HBox {
         StackPane.setAlignment(clearBtn, Pos.CENTER_RIGHT);
         StackPane.setMargin(clearBtn, new Insets(0, 5, 0, 0));
 
-        searchField.textProperty().bindBidirectional(searchQuery);
+        searchField.textProperty().bindBidirectional(viewModel.searchQueryProperty());
         searchField.textProperty().addListener((obs, old, val) ->
                 clearBtn.setVisible(val != null && !val.isEmpty())
         );
@@ -85,17 +93,15 @@ public class BrowserToolbar extends HBox {
             searchField.requestFocus();
         });
 
-        searchField.setOnAction(e -> {
-            if (onSearchEnter != null) onSearchEnter.run();
-        });
+        searchField.setOnAction(e -> viewModel.triggerSearchEnter());
 
         searchContainer.getChildren().addAll(searchField, clearBtn);
 
         // 2. Filters Section
-        HBox modelFilter = createFilterControl("Model", models, selectedModel);
-        HBox samplerFilter = createFilterControl("Sampler", samplers, selectedSampler);
-        HBox loraFilter = createFilterControl("LoRA", loras, selectedLora);
-        HBox starFilter = createFilterControl("Stars", stars, selectedStar);
+        HBox modelFilter = createFilterControl("Model", viewModel.getModels(), viewModel.selectedModelProperty());
+        HBox samplerFilter = createFilterControl("Sampler", viewModel.getSamplers(), viewModel.selectedSamplerProperty());
+        HBox loraFilter = createFilterControl("LoRA", viewModel.getLoras(), viewModel.selectedLoraProperty());
+        HBox starFilter = createFilterControl("Stars", viewModel.getStars(), viewModel.selectedStarProperty());
 
         // 3. Controls Section
         HBox viewControls = new HBox(8);
@@ -104,21 +110,18 @@ public class BrowserToolbar extends HBox {
         sizeSlider = new Slider(100, 400, 160);
         sizeSlider.setPrefWidth(100);
         sizeSlider.setVisible(false);
+        sizeSlider.valueProperty().bindBidirectional(viewModel.cardSizeProperty());
 
         viewGroup = new ToggleGroup();
 
         gridBtn = createToggleButton("fa-th-large", "Gallery");
         gridBtn.setToggleGroup(viewGroup);
         gridBtn.setSelected(true);
-        gridBtn.setOnAction(e -> {
-            if (onGridAction != null) onGridAction.run();
-        });
+        gridBtn.setOnAction(e -> viewModel.triggerGridAction());
 
         singleBtn = createToggleButton("fa-square-o", "Single");
         singleBtn.setToggleGroup(viewGroup);
-        singleBtn.setOnAction(e -> {
-            if (onSingleAction != null) onSingleAction.run();
-        });
+        singleBtn.setOnAction(e -> viewModel.triggerSingleAction());
 
         viewGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal == null) {
@@ -146,7 +149,7 @@ public class BrowserToolbar extends HBox {
     }
 
     public DoubleProperty cardSizeProperty() {
-        return sizeSlider.valueProperty();
+        return viewModel.cardSizeProperty();
     }
 
     public void setSliderVisible(boolean visible) {
@@ -156,15 +159,15 @@ public class BrowserToolbar extends HBox {
     // --- View Actions ---
 
     public void setOnGridAction(Runnable action) {
-        this.onGridAction = action;
+        viewModel.onGridActionProperty().set(action);
     }
 
     public void setOnSingleAction(Runnable action) {
-        this.onSingleAction = action;
+        viewModel.onSingleActionProperty().set(action);
     }
 
     public void setOnSearchEnter(Runnable action) {
-        this.onSearchEnter = action;
+        viewModel.onSearchEnterProperty().set(action);
     }
 
     // --- Private UI Helpers ---
@@ -183,19 +186,12 @@ public class BrowserToolbar extends HBox {
         HBox box = new HBox(2);
         box.setAlignment(Pos.CENTER_LEFT);
         for (int i = 1; i <= 5; i++) {
-            // FIX: Use "fa-star" for filled, "fa-star-o" (outline) for empty.
-            // This shape difference is crucial for visibility.
             FontIcon star = new FontIcon(i <= rating ? "fa-star" : "fa-star-o");
             star.setIconSize(12);
 
             if (i <= rating) {
-                // FIX: Force Yellow for filled stars, overriding the global gradient.
-                // Using !important ensures it takes precedence over dark-theme.css
                 star.setStyle("-fx-fill: #FFD700 !important; -fx-icon-color: #FFD700 !important;");
             } else {
-                // FIX: For empty stars, do not set a style.
-                // This allows them to inherit the global .ikonli-font-icon style from CSS,
-                // which applies the 'gradient' you requested (gradient outline).
                 star.setStyle(null);
             }
             box.getChildren().add(star);

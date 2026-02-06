@@ -45,6 +45,44 @@ public class ImageRepository {
 
     // --- Core Identity ---
 
+    public int getIdByPath(String path) {
+        String sql = "SELECT id FROM images WHERE file_path = ?";
+        try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, path);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) return rs.getInt("id");
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to fetch ID for path: {}", path, e);
+        }
+        return -1;
+    }
+
+    public List<String> findPathsByHash(String hash) {
+        List<String> paths = new ArrayList<>();
+        String sql = "SELECT file_path FROM images WHERE file_hash = ?";
+        try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, hash);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) paths.add(rs.getString("file_path"));
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to fetch paths by hash", e);
+        }
+        return paths;
+    }
+
+    public void updatePath(String oldPath, String newPath) {
+        String sql = "UPDATE images SET file_path = ? WHERE file_path = ?";
+        try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, newPath);
+            pstmt.setString(2, oldPath);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            logger.error("Failed to update path from {} to {}", oldPath, newPath, e);
+        }
+    }
+
     public int getOrCreateId(String path, String hash) throws SQLException {
         try (Connection conn = db.connect()) {
             String insertSql = "INSERT OR IGNORE INTO images(file_path, file_hash, last_scanned) VALUES(?, ?, ?)";
@@ -165,7 +203,8 @@ public class ImageRepository {
             pstmt.setString(1, path);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) return rs.getInt("rating");
-        } catch (SQLException ignored) {
+        } catch (SQLException e) {
+            logger.error("Failed to get rating for path: {}", path, e);
         }
         return 0;
     }
@@ -200,7 +239,8 @@ public class ImageRepository {
         try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, path);
             return pstmt.executeQuery().next();
-        } catch (SQLException ignored) {
+        } catch (SQLException e) {
+            logger.error("Failed to check metadata existence for path: {}", path, e);
             return false;
         }
     }
@@ -300,7 +340,8 @@ public class ImageRepository {
             pstmt.setString(1, path);
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) tags.add(rs.getString("tag"));
-        } catch (SQLException ignored) {
+        } catch (SQLException e) {
+            logger.error("Failed to get tags for path: {}", path, e);
         }
         return tags;
     }
@@ -326,7 +367,8 @@ public class ImageRepository {
         try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement("INSERT OR IGNORE INTO pinned_folders(path) VALUES(?)")) {
             pstmt.setString(1, path);
             pstmt.executeUpdate();
-        } catch (SQLException ignored) {
+        } catch (SQLException e) {
+            logger.error("Failed to add pinned folder: {}", path, e);
         }
     }
 
@@ -334,7 +376,8 @@ public class ImageRepository {
         try (Connection conn = db.connect(); PreparedStatement pstmt = conn.prepareStatement("DELETE FROM pinned_folders WHERE path = ?")) {
             pstmt.setString(1, path);
             pstmt.executeUpdate();
-        } catch (SQLException ignored) {
+        } catch (SQLException e) {
+            logger.error("Failed to remove pinned folder: {}", path, e);
         }
     }
 

@@ -157,7 +157,26 @@ public class UserDataManager {
 
     private int getOrCreateImageIdInternal(File file) {
         try {
-            return imageRepo.getOrCreateId(relativizePath(file), calculateHash(file));
+            String path = relativizePath(file);
+            String hash = calculateHash(file);
+            
+            // Check if file exists at path
+            int id = imageRepo.getIdByPath(path);
+            if (id != -1) return id;
+
+            // Check if file was moved (same hash, different path)
+            List<String> existingPaths = imageRepo.findPathsByHash(hash);
+            if (!existingPaths.isEmpty()) {
+                // Found a match by hash. Assume it's a move/rename.
+                // Update the old path to the new path.
+                String oldPath = existingPaths.get(0);
+                logger.info("Detected file move: {} -> {}", oldPath, path);
+                imageRepo.updatePath(oldPath, path);
+                return imageRepo.getIdByPath(path);
+            }
+
+            // New file
+            return imageRepo.getOrCreateId(path, hash);
         } catch (Exception e) {
             logger.error("Failed to get ID for file: {}", file, e);
             return -1;

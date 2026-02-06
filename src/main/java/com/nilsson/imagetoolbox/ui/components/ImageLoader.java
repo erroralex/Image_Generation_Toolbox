@@ -71,10 +71,14 @@ public class ImageLoader {
 
                 if (img.isError() || img.getException() != null) {
                     // Fallthrough to fallback
+                    if (img.getException() != null) {
+                        logger.debug("JavaFX load failed for {}, trying fallback. Error: {}", file.getName(), img.getException().getMessage());
+                    }
                 } else {
                     return img;
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                logger.debug("JavaFX load exception for {}, trying fallback. Error: {}", file.getName(), e.getMessage());
             }
         }
 
@@ -144,8 +148,10 @@ public class ImageLoader {
                     logger.warn("ImageLoader: No compatible reader found for {}", file.getName());
                 }
             }
-        } catch (Throwable e) {
+        } catch (Exception e) {
             logger.error("Failed to load fallback: {}", file.getName(), e);
+        } catch (Throwable t) {
+            logger.error("Critical error loading fallback: {}", file.getName(), t);
         }
         return null;
     }

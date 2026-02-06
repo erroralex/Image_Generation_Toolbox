@@ -3,15 +3,20 @@ package com.nilsson.imagetoolbox.ui.views;
 import com.nilsson.imagetoolbox.ui.components.BrowserToolbar;
 import com.nilsson.imagetoolbox.ui.components.FolderNav;
 import com.nilsson.imagetoolbox.ui.components.ImageLoader;
+import com.nilsson.imagetoolbox.ui.viewmodels.BrowserToolbarViewModel;
 import com.nilsson.imagetoolbox.ui.viewmodels.ImageBrowserViewModel;
+import com.nilsson.imagetoolbox.ui.viewmodels.MetadataSidebarViewModel;
+import de.saxsys.mvvmfx.FluentViewLoader;
 import de.saxsys.mvvmfx.InjectViewModel;
 import de.saxsys.mvvmfx.JavaView;
+import de.saxsys.mvvmfx.ViewTuple;
 import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.input.*;
@@ -112,13 +117,14 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     public void initialize(URL url, ResourceBundle resourceBundle) {
         this.galleryView = new GalleryView(viewModel, workerPool, this::onGalleryFileSelected);
 
-        toolbar = new BrowserToolbar(
-                viewModel.searchQueryProperty(),
-                viewModel.getModels(), viewModel.selectedModelProperty(),
-                viewModel.getSamplers(), viewModel.selectedSamplerProperty(),
-                viewModel.getLoras(), viewModel.selectedLoraProperty(),
-                viewModel.getStars(), viewModel.selectedStarProperty()
-        );
+        // Load BrowserToolbar via MVVMFX with manual ViewModel injection
+        BrowserToolbarViewModel toolbarVM = new BrowserToolbarViewModel(viewModel);
+        ViewTuple<BrowserToolbar, BrowserToolbarViewModel> toolbarTuple = FluentViewLoader.javaView(BrowserToolbar.class)
+                .viewModel(toolbarVM)
+                .load();
+        
+        // Explicit cast to resolve type mismatch
+        toolbar = (BrowserToolbar) toolbarTuple.getView();
 
         toolbar.setOnGridAction(() -> setViewMode(ViewMode.GALLERY));
         toolbar.setOnSingleAction(() -> setViewMode(ViewMode.BROWSER));
@@ -235,7 +241,16 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     }
 
     private void setupInspector() {
-        inspectorDrawer = new MetadataSidebar(new MetadataSidebar.SidebarActionHandler() {
+        // Load MetadataSidebar via MVVMFX with manual ViewModel injection
+        MetadataSidebarViewModel sidebarVM = new MetadataSidebarViewModel(viewModel);
+        ViewTuple<MetadataSidebar, MetadataSidebarViewModel> sidebarTuple = FluentViewLoader.javaView(MetadataSidebar.class)
+                .viewModel(sidebarVM)
+                .load();
+        
+        // Explicit cast to resolve type mismatch
+        inspectorDrawer = (MetadataSidebar) sidebarTuple.getView();
+
+        inspectorDrawer.setActionHandler(new MetadataSidebar.SidebarActionHandler() {
             @Override
             public void onToggleDock() {
                 toggleDock();
@@ -247,18 +262,18 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             }
 
             @Override
-            public void onSetRating(int r) {
-                viewModel.setRating(r);
+            public void onSetRating(int rating) {
+                viewModel.setRating(rating);
             }
 
             @Override
-            public void onCreateCollection(String n) {
-                viewModel.createNewCollection(n);
+            public void onCreateCollection(String name) {
+                viewModel.createNewCollection(name);
             }
 
             @Override
-            public void onAddToCollection(String n) {
-                viewModel.addSelectedToCollection(n);
+            public void onAddToCollection(String collectionName) {
+                viewModel.addSelectedToCollection(collectionName);
             }
         });
         inspectorDrawer.setTranslateX(380);
@@ -292,18 +307,15 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             }
         });
 
-        viewModel.activeMetadataProperty().addListener((obs, old, meta) -> inspectorDrawer.updateData(getCurrentFile(), meta));
-        viewModel.activeRatingProperty().addListener((obs, old, rating) -> inspectorDrawer.setRating(rating.intValue()));
-
-        folderNav.setCollections(viewModel.getCollectionList());
-        inspectorDrawer.setCollections(viewModel.getCollectionList());
-        viewModel.getCollectionList().addListener((ListChangeListener<String>) c -> {
-            folderNav.setCollections(viewModel.getCollectionList());
-            inspectorDrawer.setCollections(viewModel.getCollectionList());
-        });
-
+        // Note: MetadataSidebarViewModel now handles its own bindings to MainViewModel properties
+        // We just need to handle the resolution update which is UI specific
         singleImageView.imageProperty().addListener((obs, old, img) -> {
             if (img != null) inspectorDrawer.updateResolution(img.getWidth(), img.getHeight());
+        });
+
+        folderNav.setCollections(viewModel.getCollectionList());
+        viewModel.getCollectionList().addListener((ListChangeListener<String>) c -> {
+            folderNav.setCollections(viewModel.getCollectionList());
         });
 
         galleryView.tileSizeProperty().bind(toolbar.cardSizeProperty());
@@ -533,10 +545,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     }
 
     // --- Utilities ---
-
-    private File getCurrentFile() {
-        return (currentIndex >= 0 && currentIndex < currentFiles.size()) ? currentFiles.get(currentIndex) : null;
-    }
 
     private void refreshNav() {
         folderNav.setPinnedFolders(viewModel.getPinnedFolders());

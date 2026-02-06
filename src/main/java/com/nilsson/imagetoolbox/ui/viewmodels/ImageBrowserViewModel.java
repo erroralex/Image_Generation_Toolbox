@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 public class ImageBrowserViewModel implements ViewModel {
 
     private static final Logger logger = LoggerFactory.getLogger(ImageBrowserViewModel.class);
-    private static final int SEARCH_LIMIT = 5000;
+    private static final int PAGE_SIZE = 100;
 
     // --- Dependencies ---
     private final UserDataManager dataManager;
@@ -49,8 +49,8 @@ public class ImageBrowserViewModel implements ViewModel {
     // --- View State ---
     private final ObservableList<File> selectedImages = FXCollections.observableArrayList();
     private final ObjectProperty<File> selectedImage = new SimpleObjectProperty<>();
-    private final ObservableList<File> allFolderFiles = FXCollections.observableArrayList();
     private final ObservableList<File> filteredFiles = FXCollections.observableArrayList();
+    private final List<File> allFilesCache = new ArrayList<>(); // Cache for current folder/search
 
     // --- Caches ---
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
@@ -74,6 +74,8 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ObjectProperty<String> selectedStar = new SimpleObjectProperty<>();
 
     private Task<List<File>> currentSearchTask = null;
+    private int currentPage = 0;
+    private boolean isLoadingPage = false;
 
     // --- Constructor & Initialization ---
 
@@ -114,6 +116,9 @@ public class ImageBrowserViewModel implements ViewModel {
         currentFolderMetadata.clear();
         ratingCache.clear();
         searchQuery.set("");
+        allFilesCache.clear();
+        filteredFiles.clear();
+        currentPage = 0;
 
         logger.info("Loading folder: {}", folder.getAbsolutePath());
 
@@ -129,12 +134,29 @@ public class ImageBrowserViewModel implements ViewModel {
         };
         task.setOnSucceeded(e -> {
             List<File> files = task.getValue();
-            allFolderFiles.setAll(files);
-            filteredFiles.setAll(files);
+            allFilesCache.addAll(files);
+            loadNextPage(); // Load initial page
 
             indexingService.startIndexing(files, this::onBatchIndexed);
         });
         executor.submit(task);
+    }
+
+    public void loadNextPage() {
+        if (isLoadingPage || allFilesCache.isEmpty()) return;
+        
+        int start = currentPage * PAGE_SIZE;
+        if (start >= allFilesCache.size()) return;
+
+        isLoadingPage = true;
+        int end = Math.min(start + PAGE_SIZE, allFilesCache.size());
+        List<File> page = new ArrayList<>(allFilesCache.subList(start, end));
+
+        Platform.runLater(() -> {
+            filteredFiles.addAll(page);
+            currentPage++;
+            isLoadingPage = false;
+        });
     }
 
     private void onBatchIndexed(IndexingService.BatchResult result) {
@@ -155,8 +177,16 @@ public class ImageBrowserViewModel implements ViewModel {
         String lora = selectedLora.get();
         String star = selectedStar.get();
 
+        // Reset pagination state
+        currentPage = 0;
+        filteredFiles.clear();
+        allFilesCache.clear();
+
         if ((query == null || query.isBlank()) && isAll(model) && isAll(sampler) && isAll(lora) && (star == null || star.isEmpty())) {
-            filteredFiles.setAll(allFolderFiles);
+            // If no filters, reload current folder from disk (or cache if we kept it separately)
+            // For simplicity, re-trigger loadFolder if we have a last folder, or just clear if not.
+            File last = dataManager.getLastFolder();
+            if (last != null) loadFolder(last);
             return;
         }
 
@@ -169,7 +199,9 @@ public class ImageBrowserViewModel implements ViewModel {
         Task<List<File>> task = new Task<>() {
             @Override
             protected List<File> call() {
-                List<String> paths = imageRepo.findPaths(query, filters, SEARCH_LIMIT);
+                // Fetch ALL matching paths (or a very large limit) to cache them for pagination
+                // Ideally, the repo would support offset/limit directly, but for now we cache the result list
+                List<String> paths = imageRepo.findPaths(query, filters, 100000); 
                 return paths.stream()
                         .map(File::new)
                         .filter(File::exists)
@@ -184,10 +216,11 @@ public class ImageBrowserViewModel implements ViewModel {
 
             List<File> results = task.getValue();
             if (results != null) {
-                filteredFiles.setAll(results);
+                allFilesCache.addAll(results);
+                loadNextPage();
             }
 
-            if (selectedImage.get() != null && !filteredFiles.contains(selectedImage.get())) {
+            if (selectedImage.get() != null && !allFilesCache.contains(selectedImage.get())) {
                 updateSelection(Collections.emptyList());
             }
         });
@@ -296,7 +329,7 @@ public class ImageBrowserViewModel implements ViewModel {
         executor.submit(() -> {
             List<File> deleted = targets.stream().filter(dataManager::moveFileToTrash).collect(Collectors.toList());
             if (!deleted.isEmpty()) Platform.runLater(() -> {
-                allFolderFiles.removeAll(deleted);
+                allFilesCache.removeAll(deleted);
                 filteredFiles.removeAll(deleted);
                 updateSelection(Collections.emptyList());
             });
@@ -314,9 +347,15 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public void loadCollection(String name) {
         indexingService.cancel();
+        
+        // Reset state
+        allFilesCache.clear();
+        filteredFiles.clear();
+        currentPage = 0;
+        
         List<File> c = dataManager.getFilesFromCollection(name);
-        allFolderFiles.setAll(c);
-        filteredFiles.setAll(c);
+        allFilesCache.addAll(c);
+        loadNextPage();
     }
 
     public void createNewCollection(String n) {
@@ -387,9 +426,14 @@ public class ImageBrowserViewModel implements ViewModel {
 
     public void loadStarred() {
         indexingService.cancel();
+        
+        allFilesCache.clear();
+        filteredFiles.clear();
+        currentPage = 0;
+        
         List<File> starred = dataManager.getStarredFilesList();
-        allFolderFiles.setAll(starred);
-        filteredFiles.setAll(starred);
+        allFilesCache.addAll(starred);
+        loadNextPage();
     }
 
     public File getLastFolder() {
