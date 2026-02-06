@@ -172,8 +172,14 @@ public class ImageRepository {
                     if (entry.getValue() == null || "All".equals(entry.getValue())) continue;
 
                     if ("Rating".equals(entry.getKey())) {
-                        sql.append("AND i.rating = ? ");
-                        params.add(entry.getValue());
+                        if ("Any Star Count".equals(entry.getValue())) {
+                            // Filter for ANY rating > 0 (i.e., starred images)
+                            sql.append("AND i.rating > 0 ");
+                        } else {
+                            // Filter for specific rating
+                            sql.append("AND i.rating = ? ");
+                            params.add(entry.getValue());
+                        }
                     } else if ("Loras".equals(entry.getKey())) {
                         // Fix for Lora search: Loras are stored as comma-separated lists,
                         // so we must use LIKE instead of exact equality.

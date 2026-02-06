@@ -56,6 +56,11 @@ public class CustomTitleBar extends HBox {
         Button closeBtn = new Button();
         closeBtn.setGraphic(new FontIcon(FontAwesome.TIMES));
         closeBtn.getStyleClass().addAll("window-button", "window-close");
+        
+        // Inline styling for hover effect to avoid affecting global CSS
+        closeBtn.setOnMouseEntered(e -> closeBtn.setStyle("-fx-background-color: #e81123; -fx-text-fill: white;"));
+        closeBtn.setOnMouseExited(e -> closeBtn.setStyle(""));
+
         closeBtn.setOnAction(e -> {
             if (onExitCleanup != null) onExitCleanup.run();
             primaryStage.close();
