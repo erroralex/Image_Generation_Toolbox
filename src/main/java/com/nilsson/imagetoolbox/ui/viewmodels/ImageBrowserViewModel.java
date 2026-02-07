@@ -22,25 +22,35 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 /**
- * <h2>ImageBrowserViewModel</h2>
- * <p>
- * The primary ViewModel for the image browsing interface, acting as a coordinator between
- * specialized ViewModels and data services.
- * </p>
- * <h3>Key Responsibilities:</h3>
- * <ul>
- * <li><b>Coordination:</b> Orchestrates interactions between {@link SearchViewModel}, {@link CollectionViewModel}, and the data layer.</li>
- * <li><b>State Management:</b> Maintains the state of the currently displayed file list and selection.</li>
- * <li><b>Asynchronous I/O:</b> Delegates file system and database operations to background threads.</li>
- * <li><b>Caching:</b> Manages transient metadata caches to improve UI responsiveness.</li>
- * </ul>
- */
+ <h2>ImageBrowserViewModel</h2>
+ <p>
+ The primary ViewModel for the image browsing interface, acting as a high-level coordinator
+ between specialized ViewModels and the underlying data layer.
+ </p>
+
+ <h3>Key Responsibilities:</h3>
+ <ul>
+ <li><b>Coordination:</b> Orchestrates interactions between {@link SearchViewModel},
+ {@link CollectionViewModel}, and various data services to ensure a unified state.</li>
+ <li><b>State Management:</b> Maintains the master list of filtered files, the active
+ selection set, and reactive properties for metadata and tags.</li>
+ <li><b>Asynchronous I/O:</b> Offloads heavy operations (indexing, metadata extraction,
+ file system searches) to an {@link ExecutorService} to keep the UI thread responsive.</li>
+ <li><b>Pagination & Caching:</b> Implements optimized page-based loading for large
+ directories and maintains transient caches for ratings and metadata.</li>
+ </ul>
+ * @author Nilsson
+
+ @version 1.0 */
 public class ImageBrowserViewModel implements ViewModel {
 
     private static final Logger logger = LoggerFactory.getLogger(ImageBrowserViewModel.class);
     private static final int PAGE_SIZE = 100;
 
-    // --- Dependencies ---
+    // ------------------------------------------------------------------------
+    // Dependencies
+    // ------------------------------------------------------------------------
+
     private final UserDataManager dataManager;
     private final MetadataService metaService;
     private final ImageRepository imageRepo;
@@ -48,32 +58,53 @@ public class ImageBrowserViewModel implements ViewModel {
     private final ExecutorService executor;
     private final NotificationService notificationService;
 
-    // --- Child ViewModels ---
+    // ------------------------------------------------------------------------
+    // Child ViewModels
+    // ------------------------------------------------------------------------
+
     private final SearchViewModel searchViewModel;
     private final CollectionViewModel collectionViewModel;
 
-    // --- View State ---
+    // ------------------------------------------------------------------------
+    // View State
+    // ------------------------------------------------------------------------
+
     private final ObservableList<File> selectedImages = FXCollections.observableArrayList();
     private final ObjectProperty<File> selectedImage = new SimpleObjectProperty<>();
     private final ObservableList<File> filteredFiles = FXCollections.observableArrayList();
-    private final List<File> allFilesCache = new ArrayList<>(); // Cache for current folder/search
+    private final List<File> allFilesCache = new ArrayList<>();
 
-    // --- Caches ---
+    // ------------------------------------------------------------------------
+    // Transient Caches
+    // ------------------------------------------------------------------------
+
     private final Map<File, Map<String, String>> currentFolderMetadata = new ConcurrentHashMap<>();
     private final Map<File, Integer> ratingCache = new ConcurrentHashMap<>();
 
-    // --- Properties ---
+    // ------------------------------------------------------------------------
+    // Reactive Properties
+    // ------------------------------------------------------------------------
+
     private final ObjectProperty<Map<String, String>> activeMetadata = new SimpleObjectProperty<>(new HashMap<>());
     private final ObjectProperty<Set<String>> activeTags = new SimpleObjectProperty<>(new HashSet<>());
     private final IntegerProperty activeRating = new SimpleIntegerProperty(0);
 
-    // Unified task to prevent race conditions between folder loading and searching
+    // ------------------------------------------------------------------------
+    // Pagination & Task Management
+    // ------------------------------------------------------------------------
+
     private Task<List<File>> activeTask = null;
     private int currentPage = 0;
     private boolean isLoadingPage = false;
 
-    // --- Constructor & Initialization ---
+    // ------------------------------------------------------------------------
+    // Constructor & Initialization
+    // ------------------------------------------------------------------------
 
+    /**
+     Injects dependencies and initializes the internal listener setup for
+     cross-ViewModel coordination.
+     */
     @Inject
     public ImageBrowserViewModel(UserDataManager dataManager,
                                  MetadataService metaService,
@@ -95,22 +126,31 @@ public class ImageBrowserViewModel implements ViewModel {
         setupListeners();
     }
 
+    /**
+     Binds child ViewModel properties to trigger local search and filtering logic.
+     */
     private void setupListeners() {
         searchViewModel.searchQueryProperty().addListener((obs, old, val) -> triggerSearch());
         searchViewModel.selectedModelProperty().addListener((obs, old, val) -> triggerSearch());
         searchViewModel.selectedSamplerProperty().addListener((obs, old, val) -> triggerSearch());
         searchViewModel.selectedLoraProperty().addListener((obs, old, val) -> triggerSearch());
         searchViewModel.selectedStarProperty().addListener((obs, old, val) -> triggerSearch());
-        // Removed listener for selectedTagProperty as we are removing the dropdown
     }
 
-    // --- Folder Loading & Indexing ---
+    // ------------------------------------------------------------------------
+    // Folder Loading & Indexing
+    // ------------------------------------------------------------------------
 
+    /**
+     Cancels existing tasks and initiates a fresh load of a directory.
+
+     @param folder The directory to display and index.
+     */
     public void loadFolder(File folder) {
         if (folder == null || !folder.isDirectory()) return;
 
         indexingService.cancel();
-        cancelActiveTasks(); // CRITICAL: Cancel any running search or previous load to prevent duplicates
+        cancelActiveTasks();
 
         dataManager.setLastFolder(folder);
         currentFolderMetadata.clear();
@@ -133,11 +173,11 @@ public class ImageBrowserViewModel implements ViewModel {
             }
         };
         task.setOnSucceeded(e -> {
-            if (activeTask != task) return; // Ignore if a new task started
+            if (activeTask != task) return;
 
             List<File> files = task.getValue();
             allFilesCache.addAll(files);
-            loadNextPage(); // Load initial page
+            loadNextPage();
 
             indexingService.startIndexing(files, this::onBatchIndexed);
         });
@@ -151,6 +191,9 @@ public class ImageBrowserViewModel implements ViewModel {
         executor.submit(task);
     }
 
+    /**
+     Appends the next segment of files to the filtered list for lazy-loading/infinite scroll.
+     */
     public void loadNextPage() {
         if (isLoadingPage || allFilesCache.isEmpty()) return;
 
@@ -168,28 +211,34 @@ public class ImageBrowserViewModel implements ViewModel {
         });
     }
 
+    /**
+     Handles metadata results returned from the indexing service batches.
+     */
     private void onBatchIndexed(IndexingService.BatchResult result) {
         currentFolderMetadata.putAll(result.metadata());
         ratingCache.putAll(result.ratings());
     }
 
-    // --- Search & Filtering Logic ---
+    // ------------------------------------------------------------------------
+    // Search & Filtering Logic
+    // ------------------------------------------------------------------------
 
+    /**
+     Gathers current filter criteria and queries the repository asynchronously.
+     */
     private void triggerSearch() {
-        cancelActiveTasks(); // Cancel any running folder load or previous search
+        cancelActiveTasks();
 
         String query = searchViewModel.searchQueryProperty().get();
         String model = searchViewModel.selectedModelProperty().get();
         String sampler = searchViewModel.selectedSamplerProperty().get();
         String lora = searchViewModel.selectedLoraProperty().get();
         String star = searchViewModel.selectedStarProperty().get();
-        
-        // Reset pagination state
+
         currentPage = 0;
         filteredFiles.clear();
         allFilesCache.clear();
 
-        // If no filters are active, reload current folder from disk
         if ((query == null || query.isBlank()) && searchViewModel.isAll(model) && searchViewModel.isAll(sampler) && searchViewModel.isAll(lora) && (star == null || star.isEmpty())) {
             File last = dataManager.getLastFolder();
             if (last != null) loadFolder(last);
@@ -201,15 +250,9 @@ public class ImageBrowserViewModel implements ViewModel {
         if (!searchViewModel.isAll(sampler)) filters.put("Sampler", sampler);
         if (!searchViewModel.isAll(lora)) filters.put("Loras", lora);
 
-        // Pass "Any Star Count" or specific rating to the repository
         if (star != null && !star.isEmpty()) {
             filters.put("Rating", star);
         }
-        
-        // Tag filtering is now handled via the main search query in ImageRepository.findPaths
-        // The repository logic already checks for tags if "Tag" key is present, but since we removed the dropdown,
-        // we rely on the text search or we can parse tags from the query string if we want advanced syntax (e.g. tag:foo).
-        // For now, ImageRepository's findPaths uses FTS which includes tags in 'global_text', so searching for a tag name works.
 
         Task<List<File>> task = new Task<>() {
             @Override
@@ -218,8 +261,8 @@ public class ImageBrowserViewModel implements ViewModel {
                 return paths.stream()
                         .map(File::new)
                         .filter(File::exists)
-                        .map(File::getAbsoluteFile) // Ensure consistent path representation
-                        .distinct()                 // Remove duplicates (e.g. case variants or mixed separators)
+                        .map(File::getAbsoluteFile)
+                        .distinct()
                         .collect(Collectors.toList());
             }
         };
@@ -247,8 +290,15 @@ public class ImageBrowserViewModel implements ViewModel {
         executor.submit(task);
     }
 
-    // --- Selection & Sidebar Management ---
+    // ------------------------------------------------------------------------
+    // Selection & Sidebar Management
+    // ------------------------------------------------------------------------
 
+    /**
+     Updates the local list of selected images and refreshes the metadata for the lead item.
+
+     @param selection The list of files currently selected in the UI.
+     */
     public void updateSelection(List<File> selection) {
         this.selectedImages.setAll(selection);
         if (selection.isEmpty()) {
@@ -265,6 +315,9 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
+    /**
+     Refreshes ratings, tags, and metadata for a specific file.
+     */
     private void updateSidebar(File file) {
         activeRating.set(dataManager.getRating(file));
         activeTags.set(dataManager.getTags(file));
@@ -289,6 +342,9 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
+    /**
+     Forces a refresh of the tag set for the currently selected image.
+     */
     public void reloadTags() {
         File file = selectedImage.get();
         if (file != null) {
@@ -307,6 +363,9 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
+    /**
+     Persists a new tag to the data manager for the active image.
+     */
     public void addTag(String tag) {
         File file = selectedImage.get();
         if (file != null && tag != null && !tag.isBlank()) {
@@ -317,6 +376,9 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
+    /**
+     Removes a tag from the active image via the data manager.
+     */
     public void removeTag(String tag) {
         File file = selectedImage.get();
         if (file != null && tag != null) {
@@ -327,8 +389,15 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
-    // --- File & Rating Operations ---
+    // ------------------------------------------------------------------------
+    // File & Rating Operations
+    // ------------------------------------------------------------------------
 
+    /**
+     Sets a star rating for all currently selected images.
+
+     @param rating The rating value (0-5).
+     */
     public void setRating(int rating) {
         activeRating.set(rating);
         List<File> target = new ArrayList<>(selectedImages);
@@ -338,10 +407,16 @@ public class ImageBrowserViewModel implements ViewModel {
         }));
     }
 
+    /**
+     Toggles between no rating and a 5-star rating for the current selection.
+     */
     public void toggleStar() {
         setRating(activeRating.get() > 0 ? 0 : 5);
     }
 
+    /**
+     Triggers a move-to-trash operation for selected files.
+     */
     public void deleteSelectedFiles() {
         if (selectedImages.isEmpty()) return;
         List<File> targets = new ArrayList<>(selectedImages);
@@ -360,12 +435,17 @@ public class ImageBrowserViewModel implements ViewModel {
         });
     }
 
-    // --- Collection & Folder Pinning ---
+    // ------------------------------------------------------------------------
+    // Collection & Folder Pinning
+    // ------------------------------------------------------------------------
 
     public void refreshCollections() {
         collectionViewModel.refreshCollections();
     }
 
+    /**
+     Loads files belonging to a specific collection into the main view.
+     */
     public void loadCollection(String name) {
         indexingService.cancel();
         cancelActiveTasks();
@@ -413,7 +493,9 @@ public class ImageBrowserViewModel implements ViewModel {
         return dataManager.getPinnedFolders();
     }
 
-    // --- Helper Logic & Utility ---
+    // ------------------------------------------------------------------------
+    // Helper Logic & Utilities
+    // ------------------------------------------------------------------------
 
     public int getRatingForFile(File file) {
         if (file == null) return 0;
@@ -432,10 +514,16 @@ public class ImageBrowserViewModel implements ViewModel {
         }
     }
 
+    /**
+     Externally updates the search query.
+     */
     public void search(String query) {
         searchViewModel.searchQueryProperty().set(query);
     }
 
+    /**
+     Loads the global starred files list into the viewer.
+     */
     public void loadStarred() {
         indexingService.cancel();
         cancelActiveTasks();
@@ -453,7 +541,9 @@ public class ImageBrowserViewModel implements ViewModel {
         return dataManager.getLastFolder();
     }
 
-    // --- JavaFX Properties & Accessors ---
+    // ------------------------------------------------------------------------
+    // JavaFX Properties & Accessors
+    // ------------------------------------------------------------------------
 
     public IntegerProperty activeRatingProperty() {
         return activeRating;

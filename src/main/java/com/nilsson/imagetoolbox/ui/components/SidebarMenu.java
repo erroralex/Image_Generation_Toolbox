@@ -80,7 +80,7 @@ public class SidebarMenu extends VBox {
                 createNavItem("Library", FontAwesome.FOLDER_OPEN, "VIEW_TREE"),
                 createNavItem("Speed Sorter", FontAwesome.BOLT, "VIEW_SORTER"),
                 createNavItem("Metadata Scrubber", FontAwesome.ERASER, "VIEW_SCRUB"),
-                createNavItem("Comparator", FontAwesome.MAGIC, "VIEW_FAVORITES")
+                createNavItem("Comparator", FontAwesome.BALANCE_SCALE, "VIEW_COMPARATOR")
         );
 
         // Logo Setup

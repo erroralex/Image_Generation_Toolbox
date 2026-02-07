@@ -16,6 +16,7 @@ public class MainViewModel implements ViewModel {
     public static final String VIEW_LIBRARY = "VIEW_TREE";
     public static final String VIEW_SORTER = "VIEW_SORTER";
     public static final String VIEW_SCRUB = "VIEW_SCRUB";
+    public static final String VIEW_COMPARATOR = "VIEW_COMPARATOR";
     public static final String VIEW_FAVORITES = "VIEW_FAVORITES";
 
     // --- View State ---

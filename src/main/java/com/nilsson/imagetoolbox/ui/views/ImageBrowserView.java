@@ -15,7 +15,6 @@ import javafx.collections.ListChangeListener;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.input.*;
@@ -36,6 +35,7 @@ import java.util.concurrent.Future;
  browsing experience. It functions as a composite view that integrates navigation,
  toolbars, and various viewing modes (Browser, Gallery, and List).
  </p>
+
  <h3>Key Responsibilities:</h3>
  <ul>
  <li><b>Layout Management:</b> Coordinates a {@link BorderPane} based structure with
@@ -47,15 +47,19 @@ import java.util.concurrent.Future;
  <li><b>Asynchronous Loading:</b> Utilizes a global {@link ExecutorService} to load
  high-resolution images without blocking the UI thread.</li>
  </ul>
- */
+
+ @author Nilsson
+ @version 1.0 */
 public class ImageBrowserView extends StackPane implements JavaView<ImageBrowserViewModel>, Initializable {
 
     /**
      Defines the available display modes for the central viewing area.
      */
-    public enum ViewMode {BROWSER, GALLERY, LIST}
+    public enum ViewMode {BROWSER, GALLERY, LIST, COMPARATOR}
 
-    // --- Core Dependencies ---
+    // ------------------------------------------------------------------------
+    // Core Dependencies
+    // ------------------------------------------------------------------------
 
     @InjectViewModel
     private ImageBrowserViewModel viewModel;
@@ -72,7 +76,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private final ExecutorService workerPool;
     private Future<?> currentLoadingTask;
 
-    // --- View State ---
+    // ------------------------------------------------------------------------
+    // View State
+    // ------------------------------------------------------------------------
 
     private List<File> currentFiles = new ArrayList<>();
     private final List<File> selectedFiles = new ArrayList<>();
@@ -82,7 +88,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private boolean isDrawerOpen = false;
     private boolean isDocked = false;
 
-    // --- UI UI Components ---
+    // ------------------------------------------------------------------------
+    // UI Components
+    // ------------------------------------------------------------------------
 
     private final BorderPane baseLayer;
     private FolderNav folderNav;
@@ -90,14 +98,22 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
     private final FilmstripView filmstripView;
     private GalleryView galleryView;
     private final SingleImageView singleImageView;
+    private ComparatorView comparatorView;
     private MetadataSidebar inspectorDrawer;
     private StackPane centerContainer;
     private ListView<File> fileListView;
     private Region drawerBackdrop;
     private StackPane dropOverlay;
 
-    // --- Constructor & Initialization ---
+    // ------------------------------------------------------------------------
+    // Constructor & Initialization
+    // ------------------------------------------------------------------------
 
+    /**
+     Initializes the view with the provided executor and sets up the base UI container.
+
+     @param globalExecutor The thread pool used for background image loading.
+     */
     @Inject
     public ImageBrowserView(ExecutorService globalExecutor) {
         this.workerPool = globalExecutor;
@@ -116,22 +132,25 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
                 () -> navigate(-1),
                 () -> navigate(1)
         );
+        this.comparatorView = new ComparatorView();
 
         setupComponents();
         setupInputHandlers();
     }
 
+    /**
+     FXML-compatible initialization logic. Sets up sub-components, data bindings,
+     and restores user session state.
+     */
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
         this.galleryView = new GalleryView(viewModel, workerPool, this::onGalleryFileSelected);
 
-        // Load BrowserToolbar via MVVMFX with manual ViewModel injection
         BrowserToolbarViewModel toolbarVM = new BrowserToolbarViewModel(searchViewModel);
         ViewTuple<BrowserToolbar, BrowserToolbarViewModel> toolbarTuple = FluentViewLoader.javaView(BrowserToolbar.class)
                 .viewModel(toolbarVM)
                 .load();
-        
-        // Explicit cast to resolve type mismatch
+
         toolbar = (BrowserToolbar) toolbarTuple.getView();
 
         toolbar.setOnGridAction(() -> setViewMode(ViewMode.GALLERY));
@@ -156,9 +175,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         this.getChildren().addAll(baseLayer, drawerBackdrop, inspectorDrawer, dropOverlay);
 
         refreshNav();
-
         setupBindings();
-
         setViewMode(ViewMode.BROWSER);
 
         Platform.runLater(() -> {
@@ -171,7 +188,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         });
     }
 
-    // --- Configuration Logic ---
+    // ------------------------------------------------------------------------
+    // Configuration Logic
+    // ------------------------------------------------------------------------
 
     private void setupComponents() {
         this.folderNav = new FolderNav(new FolderNav.FolderNavListener() {
@@ -225,6 +244,10 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             @Override
             public void onFilesMoved() {
             }
+
+            public void onCompareImages() {
+                setViewMode(ViewMode.COMPARATOR);
+            }
         });
 
         this.filmstripView.setOnSelectionChanged(index -> {
@@ -244,18 +267,33 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             }
         });
 
+        singleImageView.setOnDragDetected(e -> {
+            File currentFile = viewModel.getSelectedImage().get();
+            if (currentFile != null) {
+                Dragboard db = singleImageView.startDragAndDrop(TransferMode.COPY);
+                ClipboardContent content = new ClipboardContent();
+                content.putFiles(Collections.singletonList(currentFile));
+                db.setContent(content);
+
+                Image dragImage = singleImageView.getImage();
+                if (dragImage != null) {
+                    db.setDragView(dragImage);
+                }
+
+                e.consume();
+            }
+        });
+
         baseLayer.setLeft(folderNav);
         baseLayer.setCenter(centerContainer);
     }
 
     private void setupInspector() {
-        // Load MetadataSidebar via MVVMFX with manual ViewModel injection
         MetadataSidebarViewModel sidebarVM = new MetadataSidebarViewModel(viewModel, collectionViewModel, userDataManager);
         ViewTuple<MetadataSidebar, MetadataSidebarViewModel> sidebarTuple = FluentViewLoader.javaView(MetadataSidebar.class)
                 .viewModel(sidebarVM)
                 .load();
-        
-        // Explicit cast to resolve type mismatch
+
         inspectorDrawer = (MetadataSidebar) sidebarTuple.getView();
 
         inspectorDrawer.setActionHandler(new MetadataSidebar.SidebarActionHandler() {
@@ -315,8 +353,6 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
             }
         });
 
-        // Note: MetadataSidebarViewModel now handles its own bindings to MainViewModel properties
-        // We just need to handle the resolution update which is UI specific
         singleImageView.imageProperty().addListener((obs, old, img) -> {
             if (img != null) inspectorDrawer.updateResolution(img.getWidth(), img.getHeight());
         });
@@ -329,8 +365,16 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         galleryView.tileSizeProperty().bind(toolbar.cardSizeProperty());
     }
 
-    // --- State Management ---
+    // ------------------------------------------------------------------------
+    // State Management
+    // ------------------------------------------------------------------------
 
+    /**
+     Transitions the UI to the specified {@link ViewMode}, adjusting toolbars
+     and sub-component visibility accordingly.
+
+     @param mode The desired display mode.
+     */
     public void setViewMode(ViewMode mode) {
         this.currentViewMode = mode;
         centerContainer.getChildren().clear();
@@ -338,6 +382,7 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         if (toolbar != null) {
             toolbar.setSliderVisible(mode == ViewMode.GALLERY);
             toolbar.setActiveView(mode == ViewMode.GALLERY);
+            toolbar.setVisible(mode != ViewMode.COMPARATOR);
         }
 
         if (mode == ViewMode.GALLERY) {
@@ -347,6 +392,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         } else if (mode == ViewMode.LIST) {
             fileListView.getItems().setAll(currentFiles);
             centerContainer.getChildren().add(fileListView);
+            baseLayer.setBottom(null);
+        } else if (mode == ViewMode.COMPARATOR) {
+            centerContainer.getChildren().add(comparatorView);
             baseLayer.setBottom(null);
         } else {
             centerContainer.getChildren().add(singleImageView);
@@ -385,7 +433,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         filmstripView.setSelectedIndex(index);
     }
 
-    // --- Navigation & Selection ---
+    // ------------------------------------------------------------------------
+    // Navigation & Selection Logic
+    // ------------------------------------------------------------------------
 
     private void navigate(int dir) {
         if (currentFiles.isEmpty()) return;
@@ -434,7 +484,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         currentIndex = currentFiles.indexOf(file);
     }
 
-    // --- View Transitions ---
+    // ------------------------------------------------------------------------
+    // View Transitions
+    // ------------------------------------------------------------------------
 
     private void toggleDock() {
         isDocked = !isDocked;
@@ -479,7 +531,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         }
     }
 
-    // --- Interaction Handlers ---
+    // ------------------------------------------------------------------------
+    // Interaction Handlers (Keyboard & Drag/Drop)
+    // ------------------------------------------------------------------------
 
     private void setupInputHandlers() {
         this.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
@@ -529,7 +583,12 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         this.setOnDragOver(e -> {
             if (e.getDragboard().hasFiles()) {
                 e.acceptTransferModes(TransferMode.COPY);
-                dropOverlay.setVisible(true);
+                // Only show overlay if we are NOT in Comparator mode
+                // ComparatorView handles its own drag events and consumes them,
+                // but this check adds an extra layer of safety.
+                if (currentViewMode != ViewMode.COMPARATOR) {
+                    dropOverlay.setVisible(true);
+                }
             }
             e.consume();
         });
@@ -552,7 +611,9 @@ public class ImageBrowserView extends StackPane implements JavaView<ImageBrowser
         });
     }
 
-    // --- Utilities ---
+    // ------------------------------------------------------------------------
+    // Utilities
+    // ------------------------------------------------------------------------
 
     private void refreshNav() {
         folderNav.setPinnedFolders(viewModel.getPinnedFolders());

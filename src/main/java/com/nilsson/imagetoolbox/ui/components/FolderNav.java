@@ -56,6 +56,8 @@ public class FolderNav extends VBox {
         void onDeleteCollection(String name);
 
         void onAddFilesToCollection(String collectionName, List<File> files);
+        
+        // Removed onCompareImages() as it is now handled by SidebarMenu
     }
 
     // --- Static Constants ---
