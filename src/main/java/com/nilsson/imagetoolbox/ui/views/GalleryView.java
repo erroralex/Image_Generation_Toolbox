@@ -17,13 +17,17 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollBar;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.Dragboard;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
 import org.controlsfx.control.GridCell;
 import org.controlsfx.control.GridView;
 import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -48,7 +52,9 @@ import java.util.function.BiConsumer;
  <li><b>Visual Feedback:</b> Each image card displays metadata labels, star ratings, and
  selection states using CSS PseudoClasses.</li>
  <li><b>Infinite Scroll:</b> Automatically triggers pagination when the user scrolls near the bottom.</li>
+ <li><b>Drag-and-Drop Export:</b> Allows users to drag images from the gallery to external applications.</li>
  </ul>
+ * @author Nilsson
  */
 public class GalleryView extends StackPane {
 
@@ -65,16 +71,22 @@ public class GalleryView extends StackPane {
     private ScrollBar verticalScrollBar;
 
     // ------------------------------------------------------------------------
-    // Constructor & Initialization
+    // Constructor
     // ------------------------------------------------------------------------
 
+    /**
+     Constructs a new GalleryView, initializing the grid layout and data observers.
+     * @param viewModel     The primary view model for data binding.
+
+     @param thumbnailPool  The executor service for asynchronous thumbnail processing.
+     @param onFileSelected A callback handling file selection and double-click actions.
+     */
     public GalleryView(ImageBrowserViewModel viewModel, ExecutorService thumbnailPool, BiConsumer<File, Boolean> onFileSelected) {
         this.viewModel = viewModel;
         this.thumbnailPool = thumbnailPool;
         this.onFileSelected = onFileSelected;
 
         this.getStyleClass().add("gallery-view");
-
         this.setFocusTraversable(true);
 
         gridView = new GridView<>();
@@ -89,22 +101,15 @@ public class GalleryView extends StackPane {
 
         this.getChildren().add(gridView);
 
-        // State Listeners
         viewModel.getFilteredFiles().addListener((ListChangeListener<File>) c -> {
             Platform.runLater(() -> {
-                // Preserve selection if possible, or just update items
                 gridView.getItems().setAll(viewModel.getFilteredFiles());
             });
         });
 
-        // Event Handling
         this.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyNavigation);
         this.setOnMousePressed(e -> this.requestFocus());
 
-        // Setup Infinite Scroll
-        // GridView (ControlsFX) uses VirtualFlow internally. We need to find the ScrollBar.
-        // Since VirtualFlow is created lazily or is internal, we attach a listener to the children
-        // or use a layout pulse to find it.
         gridView.skinProperty().addListener((obs, oldSkin, newSkin) -> {
             if (newSkin != null) {
                 Platform.runLater(this::findAndAttachScrollBarListener);
@@ -112,6 +117,14 @@ public class GalleryView extends StackPane {
         });
     }
 
+    // ------------------------------------------------------------------------
+    // Scroll & Viewport Logic
+    // ------------------------------------------------------------------------
+
+    /**
+     Locates the vertical scrollbar within the GridView's internal VirtualFlow
+     and attaches listeners for infinite scrolling.
+     */
     private void findAndAttachScrollBarListener() {
         if (verticalScrollBar != null) return;
 
@@ -130,9 +143,13 @@ public class GalleryView extends StackPane {
     }
 
     // ------------------------------------------------------------------------
-    // Navigation & Interaction
+    // Interaction Handlers
     // ------------------------------------------------------------------------
 
+    /**
+     Processes keyboard input for grid navigation and item selection.
+     * @param e The KeyEvent triggered by the user.
+     */
     private void handleKeyNavigation(KeyEvent e) {
         if (gridView.getItems().isEmpty()) return;
 
@@ -170,8 +187,7 @@ public class GalleryView extends StackPane {
         if (newIndex != currentIndex) {
             File newFile = gridView.getItems().get(newIndex);
             onFileSelected.accept(newFile, false);
-            
-            // Auto-load next page if navigating near the end via keyboard
+
             if (newIndex >= gridView.getItems().size() - columns) {
                 viewModel.loadNextPage();
             }
@@ -179,14 +195,21 @@ public class GalleryView extends StackPane {
         e.consume();
     }
 
+    /**
+     @return The property governing the width and height of grid cells.
+     */
     public DoubleProperty tileSizeProperty() {
         return tileSize;
     }
 
     // ------------------------------------------------------------------------
-    // Internal Grid Cell Implementation
+    // ImageGridCell Implementation
     // ------------------------------------------------------------------------
 
+    /**
+     Inner class representing an individual item within the GridView.
+     Handles thumbnail loading, selection state, and drag-and-drop export.
+     */
     private class ImageGridCell extends GridCell<File> {
         private final StackPane container;
         private final ImageView imageView;
@@ -201,7 +224,9 @@ public class GalleryView extends StackPane {
             container.getStyleClass().add("image-card");
             container.setAlignment(Pos.CENTER);
 
-            // Create listener once
+            imageView = new ImageView();
+            imageView.setPreserveRatio(true);
+
             selectionListener = (obs, oldVal, newVal) -> {
                 File item = getItem();
                 boolean isSelected = item != null && Objects.equals(item, newVal);
@@ -217,8 +242,22 @@ public class GalleryView extends StackPane {
                 e.consume();
             });
 
-            imageView = new ImageView();
-            imageView.setPreserveRatio(true);
+            container.setOnDragDetected(e -> {
+                File file = getItem();
+                if (file != null) {
+                    Dragboard db = container.startDragAndDrop(TransferMode.COPY);
+                    ClipboardContent content = new ClipboardContent();
+                    content.putFiles(Collections.singletonList(file));
+                    db.setContent(content);
+
+                    Image dragImage = imageView.getImage();
+                    if (dragImage != null) {
+                        db.setDragView(dragImage);
+                    }
+
+                    e.consume();
+                }
+            });
 
             overlay = new VBox(0);
             overlay.getStyleClass().add("card-overlay");

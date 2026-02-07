@@ -678,3 +678,13 @@
 .notification-bar .close-button:hover {
     -fx-background-color: rgba(255, 255, 255, 0.1);
 }
+
+/* ===================================================================================
+ * COMPARATOR VIEW DROP ZONES
+ * ===================================================================================
+ */
+
+.drop-zone:drag-over {
+    -fx-border-color: -app-cyan;
+    -fx-background-color: derive(-app-bg-panel, 10%);
+}
